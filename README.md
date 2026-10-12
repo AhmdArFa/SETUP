@@ -21,7 +21,15 @@ local LLM**.
 - **Local LLM only:** uses the project's existing Ollama provider. On startup the API registers
   `qwen2.5:7b` (chat, transformations, tools, large-context) and `nomic-embed-text` (embeddings) as
   defaults for any slot that is still empty. No cloud API keys are needed.
+- **MCIT Studio:** one click in any notebook generates a professional **PDF report**, **PowerPoint
+  presentation**, **infographic** or **executive summary** in the MCIT identity, downloadable as
+  PDF, DOCX (Word), PPTX, SVG, HTML, Markdown, TXT or JSON.
+- **Fully local podcasts:** a self-hosted [Kokoro](https://github.com/remsky/Kokoro-FastAPI) TTS
+  server (OpenAI-compatible) is wired into Docker Compose and registered automatically as the
+  default text-to-speech model, so podcast generation needs no cloud key either.
 - **Unchanged:** ingestion pipeline, embeddings/vector store, podcast logic, database schema.
+
+> Full A-to-Z setup, testing and deployment instructions: **[MCIT_LM_SETUP_GUIDE.md](MCIT_LM_SETUP_GUIDE.md)**
 
 ## Local LLM setup
 
@@ -32,7 +40,7 @@ docker compose up -d --build
 ```
 
 This starts SurrealDB, Ollama, a one-shot `ollama-pull` job (pulls `qwen2.5:7b` and
-`nomic-embed-text` into `./ollama_data`), and MCIT LM. Open http://localhost:8502.
+`nomic-embed-text` into `./ollama_data`), Kokoro TTS, and MCIT LM. Open http://localhost:8502.
 
 ### Option B — Ollama installed on the host
 
@@ -58,9 +66,12 @@ This starts SurrealDB, Ollama, a one-shot `ollama-pull` job (pulls `qwen2.5:7b` 
 | `OLLAMA_EMBEDDING_MODEL` | no | `nomic-embed-text` | Embedding model registered as default (empty to skip) |
 | `MCIT_LOCAL_LLM_BOOTSTRAP` | no | `true` | Set `false` to disable automatic local-model defaults |
 | `OPEN_NOTEBOOK_WORKER_MAX_TASKS` | no | `1` | Background job concurrency (1 suits a single local LLM) |
+| `OPENAI_COMPATIBLE_BASE_URL_TTS` | no | `http://kokoro:8880/v1` | Local TTS server for podcasts (unset = no TTS) |
+| `LOCAL_TTS_MODEL` | no | `kokoro` | TTS model name registered as default |
+| `API_URL` | no | `same-origin` | Browser calls `/api` on the UI origin (proxied by Next.js); set a full URL only if the API is hosted elsewhere |
 | `OPEN_NOTEBOOK_PASSWORD` | no | unset | Optional UI/API password |
 
-Ports: UI `8502`, API `5055`, SurrealDB `8000`, Ollama `11434`.
+Ports: UI `8502`, API `5055`, SurrealDB `8000`, Ollama `11434`, Kokoro TTS `8880`.
 
 ### Try it
 

@@ -5,7 +5,8 @@ import { AppShell } from '@/components/layout/AppShell'
 const FEATURES = [
   'Source ingestion: PDF, video, audio and web pages',
   'Chat with your sources, with citations',
-  'Research podcast generation',
+  'MCIT Studio: PDF reports, PowerPoint presentations, infographics and executive summaries (PDF, DOCX, PPTX, SVG, HTML, MD)',
+  'Research podcast generation with local text-to-speech (Kokoro)',
   'Vector and full-text search',
   'Notebook management',
   'Local LLM inference via Ollama (qwen2.5:7b) — no cloud API keys required',

@@ -8,6 +8,8 @@ import { ShieldAlert, AlertTriangle, ArrowRight, ExternalLink } from 'lucide-rea
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { useCredentialStatus, useEnvStatus } from '@/lib/hooks/use-credentials'
 
+const LOCAL_ENV_PROVIDERS = new Set(['ollama', 'openai_compatible'])
+
 export function SetupBanner() {
   const { t } = useTranslation()
   const { data: credentialStatus } = useCredentialStatus()
@@ -19,6 +21,9 @@ export function SetupBanner() {
     if (!envStatus || !credentialStatus) return []
     const providers: string[] = []
     for (const provider in envStatus) {
+      // MCIT LM configures its local providers (Ollama, Kokoro TTS) through the
+      // deployment environment on purpose; there is nothing to migrate for them.
+      if (LOCAL_ENV_PROVIDERS.has(provider)) continue
       if (envStatus[provider] && credentialStatus.source[provider] === 'environment') {
         providers.push(provider)
       }

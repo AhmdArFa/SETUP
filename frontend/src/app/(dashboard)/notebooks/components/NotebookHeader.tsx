@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { NotebookResponse } from '@/lib/types/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Archive, ArchiveRestore, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Trash2, Sparkles } from 'lucide-react'
+import { StudioDialog } from '@/components/studio/StudioDialog'
 import { useUpdateNotebook } from '@/lib/hooks/use-notebooks'
 import { NotebookDeleteDialog } from './NotebookDeleteDialog'
 import { formatDistanceToNow } from 'date-fns'
@@ -20,6 +21,7 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
   const { t, language } = useTranslation()
   const dfLocale = getDateLocale(language)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [studioOpen, setStudioOpen] = useState(false)
   
   const updateNotebook = useUpdateNotebook()
 
@@ -68,6 +70,10 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
               )}
             </div>
             <div className="flex gap-2">
+              <Button size="sm" onClick={() => setStudioOpen(true)} className="bg-gold text-[#0b2a5b] hover:bg-gold-deep hover:text-white font-semibold">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Studio
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -119,6 +125,7 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
         </div>
       </div>
 
+      <StudioDialog notebookId={notebook.id} open={studioOpen} onOpenChange={setStudioOpen} />
       <NotebookDeleteDialog
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}

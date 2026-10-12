@@ -42,6 +42,13 @@ services:
       - ollama
     restart: "no"
 
+  # Self-hosted text-to-speech (OpenAI-compatible) so podcasts stay fully local
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    ports:
+      - "127.0.0.1:8880:8880"
+    restart: always
+
   open_notebook:
     build: .
     image: mcit-lm:local
@@ -58,6 +65,13 @@ services:
       - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
       - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       - OPEN_NOTEBOOK_WORKER_MAX_TASKS=${OPEN_NOTEBOOK_WORKER_MAX_TASKS:-1}
+
+      # Local text-to-speech for podcasts (Kokoro, OpenAI-compatible API)
+      - OPENAI_COMPATIBLE_BASE_URL_TTS=http://kokoro:8880/v1
+      - LOCAL_TTS_MODEL=kokoro
+
+      # Browser calls /api on the UI origin; Next.js proxies to the API
+      - API_URL=same-origin
 
       # Database connection. SURREAL_USER / SURREAL_PASSWORD default to root:root
       # for local use; override them in a .env file before exposing the instance
@@ -85,4 +99,5 @@ services:
     depends_on:
       - surrealdb
       - ollama
+      - kokoro
     restart: always

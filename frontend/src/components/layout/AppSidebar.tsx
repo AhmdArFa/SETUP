@@ -74,27 +74,23 @@ const getNavigation = (t: TFunction) => [
   },
 ] as const
 
-// Official MCIT logo, served from /public/mcit-logo.png. If the file is absent we
-// fall back to a plain text wordmark — never a redrawn or approximated emblem.
+// Official MCIT logo, served from /public/mcit-logo.png, on a white plate so the
+// artwork is shown exactly as supplied. If the file is absent we fall back to a
+// plain text wordmark — never a redrawn or approximated emblem.
 function MCITLogo({ compact = false }: { compact?: boolean }) {
   const [failed, setFailed] = useState(false)
   if (failed) {
-    // Expanded sidebar already shows the "MCIT LM" wordmark next to the logo slot.
     if (!compact) return null
-    return (
-      <span className="font-display font-bold tracking-tight text-white" aria-label="MCIT LM">
-        {compact ? 'MCIT' : 'MCIT LM'}
-      </span>
-    )
+    return <span className="font-display font-bold tracking-tight text-white" aria-label="MCIT LM">MCIT</span>
+  }
+  if (compact) {
+    return <span className="font-display text-[13px] font-bold tracking-tight text-white">MCIT</span>
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src="/mcit-logo.png"
-      alt="MCIT logo"
-      className={compact ? 'h-8 w-8 object-contain' : 'h-9 w-9 object-contain'}
-      onError={() => setFailed(true)}
-    />
+    <div className="bg-white rounded-sm px-2 py-1 w-full">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/mcit-logo.png" alt="Ministry of Communications and Information Technology" className="h-14 w-full object-contain" onError={() => setFailed(true)} />
+    </div>
   )
 }
 
@@ -147,8 +143,8 @@ export function AppSidebar() {
       >
         <div
           className={cn(
-            'flex h-20 items-center group border-b border-sidebar-border border-b-2 border-b-gold',
-            isCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+            'flex items-center group border-b-2 border-b-gold py-3',
+            isCollapsed ? 'justify-center px-2 h-20' : 'justify-between gap-1 px-3'
           )}
         >
           {isCollapsed ? (
@@ -165,15 +161,13 @@ export function AppSidebar() {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex flex-col gap-2 min-w-0 flex-1">
                 <MCITLogo />
-                <div className="flex flex-col min-w-0 leading-tight">
-                  <span className="font-display text-[15px] font-bold tracking-tight text-white">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-display text-[17px] font-bold tracking-tight text-white">
                     {t('common.appName')}
                   </span>
-                  <span className="text-[9.5px] text-gold">
-                    Ministry of Communications and Information Technology
-                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gold">AI Notebook</span>
                 </div>
               </div>
               <Button

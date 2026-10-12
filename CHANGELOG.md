@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **MCIT LM fork.** /about page, app footer and API root credit ("Developed by eng. Ahmed Arfa"); local Ollama models (`qwen2.5:7b`, `nomic-embed-text`) registered as defaults on startup so the app runs with zero cloud API keys
+- **MCIT Studio** (`/api/studio/generate`, `/api/studio/render`): MCIT-branded PDF reports, PPTX presentations, SVG infographics and executive summaries, exportable as PDF, DOCX, PPTX, SVG, HTML, MD, TXT, JSON
+- **Local podcast TTS**: Kokoro (OpenAI-compatible) service in Docker Compose, auto-registered as default TTS; seeded podcast profiles are pointed at the local models
+- `API_URL=same-origin` makes the browser use relative `/api` paths, so the UI works behind any proxy without exposing port 5055
 
 ### Changed
 - **Rebranded to MCIT LM** (Ministry of Communications and Information Technology): navy/gold theme, official-logo slot (`frontend/public/mcit-logo.png`, text wordmark fallback), English-only LTR UI; `docker-compose.yml` now builds locally and ships an Ollama service

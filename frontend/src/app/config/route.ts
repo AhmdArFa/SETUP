@@ -64,6 +64,13 @@ export async function GET(request: NextRequest) {
   // Priority 1: Check if API_URL is explicitly set
   const envApiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL
 
+  // API_URL=same-origin: the browser calls relative /api/* paths and Next.js
+  // proxies them to INTERNAL_API_URL. Works behind any reverse proxy / preview
+  // without exposing port 5055 to the browser.
+  if (envApiUrl === 'same-origin') {
+    return NextResponse.json({ apiUrl: '' })
+  }
+
   if (envApiUrl) {
     return NextResponse.json({
       apiUrl: envApiUrl,
