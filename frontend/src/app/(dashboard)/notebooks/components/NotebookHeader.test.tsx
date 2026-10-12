@@ -24,6 +24,8 @@ const notebook: NotebookResponse = {
   note_count: 0,
 }
 
+vi.mock('@/components/studio/StudioDialog', () => ({ StudioDialog: () => null }))
+
 describe('NotebookHeader', () => {
   beforeEach(() => {
     mutateAsync.mockReset()

@@ -1,28 +1,43 @@
-"""MCIT LM Studio: generate reports, presentations, infographics and summaries
-from a notebook, then download them in any supported format."""
+"""MCIT LM Studio API: generate reports, decks, infographics and summaries from a
+notebook, store them in a file library, and download them in any format."""
 
 import re
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 
 from open_notebook.domain.notebook import Notebook
 from open_notebook.exceptions import OpenNotebookError
-from open_notebook.exports.content import ExportKind, StudioDocument, generate_document
+from open_notebook.exports import storage
+from open_notebook.exports.content import (
+    ExportKind,
+    StudioDocument,
+    StudioOptions,
+    generate_document,
+)
 from open_notebook.exports.renderers import RENDERERS
+from open_notebook.exports.themes import THEMES
 
 router = APIRouter()
 
 ExportFormat = Literal["pdf", "docx", "pptx", "svg", "html", "md", "txt", "json"]
 
+DEFAULT_FORMAT = {
+    "report": "pdf",
+    "presentation": "pptx",
+    "infographic": "svg",
+    "summary": "docx",
+}
+
 
 class StudioGenerateRequest(BaseModel):
     notebook_id: str
     kind: ExportKind = "report"
-    instructions: Optional[str] = None
+    options: StudioOptions = StudioOptions()
+    instructions: Optional[str] = None  # kept for older clients; merged into options
     model_id: Optional[str] = None
 
 
@@ -31,24 +46,48 @@ class StudioRenderRequest(BaseModel):
     format: ExportFormat = "pdf"
 
 
+class StudioSaveRequest(BaseModel):
+    document: StudioDocument
+    formats: List[ExportFormat]
+    notebook_id: Optional[str] = None
+
+
 @router.get("/studio/formats")
 async def studio_formats():
     return {
-        "kinds": ["report", "presentation", "infographic", "summary"],
+        "kinds": list(DEFAULT_FORMAT.keys()),
         "formats": list(RENDERERS.keys()),
+        "default_format": DEFAULT_FORMAT,
+        "themes": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "colors": [t.dark, t.primary, t.accent, t.soft],
+            }
+            for t in THEMES.values()
+        ],
+        "lengths": ["brief", "standard", "detailed"],
+        "tones": ["formal", "neutral", "persuasive", "plain"],
+        "slide_count": {"min": 4, "max": 20, "default": 8},
     }
+
+
+async def run_generation(req: StudioGenerateRequest) -> StudioDocument:
+    notebook = await Notebook.get(req.notebook_id)
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    opts = req.options
+    if req.instructions and not opts.instructions:
+        opts = opts.model_copy(update={"instructions": req.instructions})
+    return await generate_document(notebook, req.kind, opts, req.model_id)
 
 
 @router.post("/studio/generate", response_model=StudioDocument)
 async def studio_generate(request: StudioGenerateRequest):
-    notebook = await Notebook.get(request.notebook_id)
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
     try:
-        return await generate_document(
-            notebook, request.kind, request.instructions, request.model_id
-        )
-    except OpenNotebookError:
+        return await run_generation(request)
+    except (OpenNotebookError, HTTPException):
         raise
     except Exception as e:
         logger.exception(e)
@@ -63,10 +102,61 @@ async def studio_render(request: StudioRenderRequest):
     except Exception as e:
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Rendering failed: {e}")
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", request.document.title).strip("-")[:60] or "mcit-lm"
-    filename = f"MCIT-LM-{request.document.kind}-{slug}.{ext}"
+    slug = (
+        re.sub(r"[^A-Za-z0-9]+", "-", request.document.title).strip("-")[:60]
+        or "mcit-lm"
+    )
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{slug}.{ext}"'},
     )
+
+
+@router.post("/studio/save", response_model=List[storage.StudioFile])
+async def studio_save(request: StudioSaveRequest):
+    """Render a document into one or more formats and keep them in the file library."""
+    doc_id = storage.save_document(request.document)
+    try:
+        return [
+            storage.store_file(request.document, f, request.notebook_id, doc_id)
+            for f in request.formats
+        ]
+    except Exception as e:
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=f"Rendering failed: {e}")
+
+
+@router.get("/studio/files", response_model=List[storage.StudioFile])
+async def studio_files(notebook_id: Optional[str] = None):
+    return storage.list_files(notebook_id)
+
+
+@router.get("/studio/files/{file_id}/download")
+async def studio_download(file_id: str, inline: bool = False):
+    item = storage.get_file(file_id)
+    if not item or not item.path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    media = RENDERERS.get(item.format, (None, "application/octet-stream", ""))[1]
+    return FileResponse(
+        item.path,
+        media_type=media,
+        filename=item.filename,
+        content_disposition_type="inline" if inline else "attachment",
+    )
+
+
+@router.get("/studio/files/{file_id}/document", response_model=StudioDocument)
+async def studio_file_document(file_id: str):
+    item = storage.get_file(file_id)
+    doc = storage.load_document(item.document_id) if item and item.document_id else None
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+
+@router.delete("/studio/files/{file_id}")
+async def studio_delete(file_id: str):
+    if not storage.delete_file(file_id):
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"deleted": file_id}

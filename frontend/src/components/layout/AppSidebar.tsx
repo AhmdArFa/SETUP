@@ -24,7 +24,6 @@ import {
 import { ThemeToggle } from '@/components/common/ThemeToggle'
 import type { TFunction } from 'i18next'
 import { useTranslation } from '@/lib/hooks/use-translation'
-import { Separator } from '@/components/ui/separator'
 import {
   Book,
   Search,
@@ -40,9 +39,19 @@ import {
   Wrench,
   Command,
   Info,
+  MessageSquareText,
+  FolderOpen,
+  Sparkles,
 } from 'lucide-react'
 
 const getNavigation = (t: TFunction) => [
+  {
+    title: 'Workspace',
+    items: [
+      { name: 'Assistant', href: '/assistant', icon: MessageSquareText, iconClass: undefined },
+      { name: 'Files', href: '/files', icon: FolderOpen, iconClass: undefined },
+    ],
+  },
   {
     title: t('navigation.collect'),
     items: [
@@ -68,29 +77,28 @@ const getNavigation = (t: TFunction) => [
       { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
       { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
       { name: t('navigation.settings'), href: '/settings', icon: Settings, iconClass: undefined },
+      { name: 'Skills', href: '/skills', icon: Sparkles, iconClass: undefined },
       { name: t('navigation.advanced'), href: '/advanced', icon: Wrench, iconClass: undefined },
       { name: 'About', href: '/about', icon: Info, iconClass: undefined },
     ],
   },
 ] as const
 
-// Official MCIT logo, served from /public/mcit-logo.png, on a white plate so the
-// artwork is shown exactly as supplied. If the file is absent we fall back to a
-// plain text wordmark — never a redrawn or approximated emblem.
+// Official MCIT logo from /public/mcit-logo.png, shown exactly as supplied.
+// If the file is absent, fall back to a plain text wordmark.
 function MCITLogo({ compact = false }: { compact?: boolean }) {
   const [failed, setFailed] = useState(false)
-  if (failed) {
-    if (!compact) return null
-    return <span className="font-display font-bold tracking-tight text-white" aria-label="MCIT LM">MCIT</span>
-  }
-  if (compact) {
-    return <span className="font-display text-[13px] font-bold tracking-tight text-white">MCIT</span>
+  if (compact || failed) {
+    return <span className="text-[13px] font-semibold tracking-tight">{compact ? 'MCIT' : 'MCIT LM'}</span>
   }
   return (
-    <div className="bg-white rounded-sm px-2 py-1 w-full">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/mcit-logo.png" alt="Ministry of Communications and Information Technology" className="h-14 w-full object-contain" onError={() => setFailed(true)} />
-    </div>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/mcit-logo.png"
+      alt="Ministry of Communications and Information Technology"
+      className="h-11 w-auto object-contain"
+      onError={() => setFailed(true)}
+    />
   )
 }
 
@@ -143,7 +151,7 @@ export function AppSidebar() {
       >
         <div
           className={cn(
-            'flex items-center group border-b-2 border-b-gold py-3',
+            'flex items-center group py-4',
             isCollapsed ? 'justify-center px-2 h-20' : 'justify-between gap-1 px-3'
           )}
         >
@@ -161,14 +169,11 @@ export function AppSidebar() {
             </div>
           ) : (
             <>
-              <div className="flex flex-col gap-2 min-w-0 flex-1">
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
                 <MCITLogo />
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-display text-[17px] font-bold tracking-tight text-white">
-                    {t('common.appName')}
-                  </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gold">AI Notebook</span>
-                </div>
+                <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground px-0.5">
+                  {t('common.appName')} <span className="font-normal text-muted-foreground">AI Notebook</span>
+                </span>
               </div>
               <Button
                 variant="ghost"
@@ -204,7 +209,7 @@ export function AppSidebar() {
                         onClick={() => setCreateMenuOpen(true)}
                         variant="default"
                         size="sm"
-                        className="w-full justify-center px-2 font-display font-bold bg-gold text-[#0b2a5b] hover:bg-gold-deep hover:text-white"
+                        className="w-full justify-center px-2 font-medium rounded-lg"
                         aria-label={t('common.create')}
                       >
                         <Plus className="h-4 w-4" />
@@ -219,7 +224,7 @@ export function AppSidebar() {
                     onClick={() => setCreateMenuOpen(true)}
                     variant="default"
                     size="sm"
-                    className="w-full justify-start font-display font-bold bg-gold text-[#0b2a5b] hover:bg-gold-deep hover:text-white"
+                    className="w-full justify-start font-medium rounded-lg"
                    >
                     <Plus className="h-4 w-4 mr-2" />
                     {t('common.create')}
@@ -269,11 +274,11 @@ export function AppSidebar() {
           {navigation.map((section, index) => (
             <div key={section.title}>
               {index > 0 && (
-                <Separator className="my-3 bg-sidebar-border" />
+                <div className="h-3" />
               )}
               <div className="space-y-1">
                 {!isCollapsed && (
-                  <h3 className="mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-gold/80">
+                  <h3 className="mb-1 px-3 text-xs font-medium text-muted-foreground">
                     {section.title}
                   </h3>
                 )}
@@ -283,10 +288,11 @@ export function AppSidebar() {
                   const button = (
                     <Button
                       variant="ghost"
+                      aria-current={isActive ? 'page' : undefined}
                       className={cn(
-                        'w-full gap-2.5 text-[13px] font-medium text-sidebar-foreground/80 sidebar-menu-item relative',
+                        'w-full gap-2.5 text-[13.5px] font-normal text-sidebar-foreground/80 sidebar-menu-item relative rounded-lg h-9',
                         isActive &&
-                          'bg-sidebar-accent font-semibold text-white before:absolute before:-left-1.5 before:top-[7px] before:bottom-[7px] before:w-[3px] before:rounded-[2px] before:bg-gold',
+                          'bg-sidebar-accent font-medium text-sidebar-foreground',
                         isCollapsed ? 'justify-center px-2' : 'justify-start'
                       )}
                     >
@@ -337,7 +343,7 @@ export function AppSidebar() {
                   {isMac ? <span className="text-xs">⌘</span> : <span>Ctrl+</span>}K
                 </kbd>
               </div>
-               <p className="mt-1 text-[10px] text-gold/80">
+               <p className="mt-1 text-[10px] text-muted-foreground">
                 {t('common.quickActionsDesc')}
               </p>
             </div>

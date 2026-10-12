@@ -23,6 +23,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from api.auth import PasswordAuthMiddleware
 from api.middleware import MaxBodySizeMiddleware, get_max_upload_size_bytes
 from api.routers import (
+    agent,
     auth,
     capabilities,
     chat,
@@ -414,6 +415,7 @@ app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(studio.router, prefix="/api", tags=["studio"])
+app.include_router(agent.router, prefix="/api", tags=["agent"])
 
 
 @app.get("/")

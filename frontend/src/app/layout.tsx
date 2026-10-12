@@ -1,9 +1,5 @@
 import type { Metadata } from "next";
-import {
-  Bricolage_Grotesque,
-  Instrument_Sans,
-  Spline_Sans_Mono,
-} from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import { Toaster } from "@/components/ui/sonner";
@@ -13,26 +9,21 @@ import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ConnectionGuard } from "@/components/common/ConnectionGuard";
 import { themeScript } from "@/lib/theme-script";
 import { I18nProvider } from "@/components/providers/I18nProvider";
+import { LobeProvider } from "@/components/providers/LobeProvider";
 
-const instrumentSans = Instrument_Sans({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-instrument-sans",
+  variable: "--font-inter",
 });
 
-const bricolageGrotesque = Bricolage_Grotesque({
+const mono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["600", "700"],
-  variable: "--font-bricolage",
-});
-
-const splineSansMono = Spline_Sans_Mono({
-  subsets: ["latin"],
-  variable: "--font-spline-mono",
+  variable: "--font-mono-face",
 });
 
 export const metadata: Metadata = {
   title: "MCIT LM",
-  description: "MCIT LM — Ministry of Communications and Information Technology",
+  description: "MCIT LM, the AI notebook of the Ministry of Communications and Information Technology",
 };
 
 export default function RootLayout({
@@ -46,16 +37,18 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body
-        className={`${instrumentSans.variable} ${bricolageGrotesque.variable} ${splineSansMono.variable} font-sans`}
+        className={`${inter.variable} ${mono.variable} font-sans`}
       >
         <ErrorBoundary>
           <ThemeProvider>
             <QueryProvider>
               <I18nProvider>
-                <ConnectionGuard>
-                  {children}
-                  <Toaster />
-                </ConnectionGuard>
+                <LobeProvider>
+                  <ConnectionGuard>
+                    {children}
+                    <Toaster />
+                  </ConnectionGuard>
+                </LobeProvider>
               </I18nProvider>
             </QueryProvider>
           </ThemeProvider>

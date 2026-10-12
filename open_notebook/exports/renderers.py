@@ -1,34 +1,37 @@
-"""MCIT-themed renderers for StudioDocument: PDF, DOCX, PPTX, SVG, HTML, MD, TXT, JSON.
+"""Studio renderers: PDF, DOCX, PPTX, SVG, HTML, MD, TXT, JSON.
 
-Visual identity: deep navy primary, gold accent, white surfaces, no gradients.
+Design rules (from the Anthropic pptx skill and our own review):
+  * one dominant colour, one supporting tint, one accent (see themes.py)
+  * dark cover and closing, light content pages
+  * no accent lines under titles, no decorative colour bars or edge stripes
+  * every slide carries a visual element (cards, numbers, chart, process)
+  * left-aligned body text, strong size contrast between titles and body
 """
 
 import base64
 import html
 import io
+import re
 import textwrap
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
-from open_notebook.exports.content import StudioDocument
-
-NAVY = "#0B2A5B"
-NAVY_DARK = "#071D40"
-GOLD = "#B8892B"
-INK = "#1F2937"
-MUTED = "#5B6472"
-LIGHT = "#F4F6F9"
-LINE = "#D9DEE7"
+from open_notebook.exports.content import Slide, StudioDocument
+from open_notebook.exports.themes import Theme, get_theme
 
 ORG = "Ministry of Communications and Information Technology"
 PRODUCT = "MCIT LM"
 LOGO_PATH = Path(__file__).parent / "assets" / "mcit-logo.png"
+# "170 online services" -> ("170", "online services") for the big-number panel
+LEAD_NUMBER = re.compile(
+    r"^\D{0,12}?(\d[\d.,]*\s*(?:%|million|billion|bn|k)?)\s+(.*)$", re.I
+)
 
 KIND_LABEL = {
-    "report": "Research Report",
+    "report": "Research report",
     "presentation": "Presentation",
     "infographic": "Infographic",
-    "summary": "Executive Summary",
+    "summary": "Executive summary",
 }
 
 
@@ -36,50 +39,99 @@ def _label(doc: StudioDocument) -> str:
     return KIND_LABEL.get(doc.kind, "Document")
 
 
-# --------------------------------------------------------------------------- MD / TXT / JSON
+def _theme(doc: StudioDocument) -> Theme:
+    return get_theme(doc.options.theme if doc.options else None)
+
+
+def _sections_for(doc: StudioDocument):
+    """Decks store content in slides; other outputs read sections. Bridge both ways."""
+    if doc.sections:
+        return doc.sections
+    from open_notebook.exports.content import Section
+
+    out = []
+    for s in doc.slides:
+        bullets = (
+            s.bullets
+            or s.steps
+            or (s.left + s.right)
+            or [f"{st.value}: {st.label}" for st in s.stats]
+        )
+        out.append(
+            Section(heading=s.title, body=s.subtitle or s.quote, bullets=bullets)
+        )
+    return out
+
+
+# =========================================================================== MD / TXT / JSON
 
 
 def render_md(doc: StudioDocument) -> bytes:
     out: List[str] = [f"# {doc.title}", ""]
     if doc.subtitle:
-        out += [f"_{doc.subtitle}_", ""]
-    out += [f"**{ORG}** · {PRODUCT} {_label(doc)} · {doc.generated_at}", ""]
+        out += [doc.subtitle, ""]
+    out += [f"{_label(doc)} · {ORG} · {doc.generated_at}", ""]
     if doc.summary:
-        out += ["## Executive Summary", "", doc.summary, ""]
+        out += ["## Summary", "", doc.summary, ""]
     if doc.stats:
-        out += ["## Key Figures", "", "| Figure | Description |", "|---|---|"]
-        out += [f"| **{s.value}** | {s.label} |" for s in doc.stats]
-        out.append("")
+        out += ["## Key figures", "", "| Figure | Measure |", "|---|---|"]
+        out += [f"| {s.value} | {s.label} |" for s in doc.stats] + [""]
     if doc.key_points:
-        out += ["## Key Points", ""] + [f"- {p}" for p in doc.key_points] + [""]
-    for sec in doc.sections:
-        out += [f"## {sec.heading}", ""]
-        if sec.body:
-            out += [sec.body, ""]
-        out += [f"- {b}" for b in sec.bullets]
-        if sec.bullets:
+        out += ["## Key points", ""] + [f"- {p}" for p in doc.key_points] + [""]
+    if doc.kind == "presentation" and doc.slides:
+        for i, s in enumerate(doc.slides, 1):
+            out += [f"## Slide {i}: {s.title}", ""]
+            for b in s.bullets or s.steps:
+                out.append(f"- {b}")
+            if s.left or s.right:
+                out += [f"**{s.left_title or 'Left'}**"] + [f"- {x}" for x in s.left]
+                out += [f"**{s.right_title or 'Right'}**"] + [f"- {x}" for x in s.right]
+            for st in s.stats:
+                out.append(f"- {st.value}: {st.label}")
+            if s.quote:
+                out.append(f"> {s.quote}")
+            if s.chart_labels:
+                out += [
+                    f"- {lab}: {val:g}"
+                    for lab, val in zip(s.chart_labels, s.chart_values)
+                ]
+            if s.notes:
+                out += ["", f"_Speaker notes: {s.notes}_"]
             out.append("")
+    else:
+        for sec in doc.sections:
+            out += [f"## {sec.heading}", ""]
+            if sec.body:
+                out += [sec.body, ""]
+            out += [f"- {b}" for b in sec.bullets]
+            if sec.bullets:
+                out.append("")
     if doc.recommendations:
-        out += ["## Recommendations", ""]
-        out += [f"{i}. {r}" for i, r in enumerate(doc.recommendations, 1)] + [""]
+        out += (
+            ["## Recommendations", ""]
+            + [f"{i}. {r}" for i, r in enumerate(doc.recommendations, 1)]
+            + [""]
+        )
     if doc.conclusion:
         out += ["## Conclusion", "", doc.conclusion, ""]
     if doc.sources:
         out += ["## Sources", ""] + [f"- {s}" for s in doc.sources] + [""]
-    out += ["---", f"_Generated by {PRODUCT} — {ORG}_"]
+    out += [f"Generated by {PRODUCT}, {ORG}"]
     return "\n".join(out).encode("utf-8")
 
 
 def render_txt(doc: StudioDocument) -> bytes:
     md = render_md(doc).decode("utf-8")
-    return md.replace("**", "").replace("_", "").replace("#", "").encode("utf-8")
+    for token in ("**", "_", "## ", "# ", "> "):
+        md = md.replace(token, "")
+    return md.encode("utf-8")
 
 
 def render_json(doc: StudioDocument) -> bytes:
     return doc.model_dump_json(indent=2).encode("utf-8")
 
 
-# --------------------------------------------------------------------------- HTML
+# =========================================================================== HTML
 
 
 def _logo_data_uri() -> str:
@@ -89,58 +141,76 @@ def _logo_data_uri() -> str:
 
 
 def render_html(doc: StudioDocument) -> bytes:
+    t = _theme(doc)
     e = html.escape
     logo = _logo_data_uri()
-    parts: List[str] = []
+    body: List[str] = []
     if doc.summary:
-        parts.append(f"<h2>Executive Summary</h2><p>{e(doc.summary)}</p>")
+        body.append(f'<p class="lead">{e(doc.summary)}</p>')
     if doc.stats:
         cards = "".join(
             f'<div class="stat"><div class="v">{e(s.value)}</div><div class="l">{e(s.label)}</div></div>'
             for s in doc.stats
         )
-        parts.append(f'<h2>Key Figures</h2><div class="stats">{cards}</div>')
+        body.append(f'<div class="stats">{cards}</div>')
     if doc.key_points:
-        parts.append("<h2>Key Points</h2><ul>" + "".join(f"<li>{e(p)}</li>" for p in doc.key_points) + "</ul>")
-    for sec in doc.sections:
-        parts.append(f"<h2>{e(sec.heading)}</h2>")
+        body.append(
+            "<h2>Key points</h2><ul>"
+            + "".join(f"<li>{e(p)}</li>" for p in doc.key_points)
+            + "</ul>"
+        )
+    for sec in _sections_for(doc):
+        body.append(f"<h2>{e(sec.heading)}</h2>")
         if sec.body:
-            parts.append(f"<p>{e(sec.body)}</p>")
+            body.append(f"<p>{e(sec.body)}</p>")
         if sec.bullets:
-            parts.append("<ul>" + "".join(f"<li>{e(b)}</li>" for b in sec.bullets) + "</ul>")
+            body.append(
+                "<ul>" + "".join(f"<li>{e(b)}</li>" for b in sec.bullets) + "</ul>"
+            )
     if doc.recommendations:
-        parts.append("<h2>Recommendations</h2><ol>" + "".join(f"<li>{e(r)}</li>" for r in doc.recommendations) + "</ol>")
+        body.append(
+            "<h2>Recommendations</h2><ol>"
+            + "".join(f"<li>{e(r)}</li>" for r in doc.recommendations)
+            + "</ol>"
+        )
     if doc.conclusion:
-        parts.append(f"<h2>Conclusion</h2><p>{e(doc.conclusion)}</p>")
+        body.append(f'<div class="callout">{e(doc.conclusion)}</div>')
     if doc.sources:
-        parts.append('<h2>Sources</h2><ul class="src">' + "".join(f"<li>{e(s)}</li>" for s in doc.sources) + "</ul>")
-    logo_html = f'<img src="{logo}" alt="MCIT logo">' if logo else f"<strong>{PRODUCT}</strong>"
+        body.append(
+            '<h2>Sources</h2><ul class="src">'
+            + "".join(f"<li>{e(s)}</li>" for s in doc.sources)
+            + "</ul>"
+        )
+    logo_html = (
+        f'<img src="{logo}" alt="MCIT">' if logo else f"<strong>{PRODUCT}</strong>"
+    )
     page = f"""<!doctype html><html lang="en" dir="ltr"><head><meta charset="utf-8">
-<title>{e(doc.title)}</title><style>
-body{{font-family:Arial,Helvetica,sans-serif;color:{INK};margin:0;background:#fff}}
-header{{display:flex;align-items:center;justify-content:space-between;padding:16px 48px;border-bottom:4px solid {GOLD}}}
-header img{{height:64px}} header .meta{{text-align:right;font-size:12px;color:{MUTED}}}
-.band{{background:{NAVY};color:#fff;padding:32px 48px}} .band h1{{margin:0 0 6px;font-size:30px}}
-.band .k{{color:{GOLD};text-transform:uppercase;letter-spacing:.12em;font-size:12px;font-weight:bold}}
-main{{padding:24px 48px;max-width:900px}} h2{{color:{NAVY};border-left:4px solid {GOLD};padding-left:10px;font-size:20px;margin-top:28px}}
-p,li{{line-height:1.6;font-size:15px}} .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}}
-.stat{{border:1px solid {LINE};border-top:4px solid {NAVY};padding:14px}} .stat .v{{font-size:26px;font-weight:bold;color:{NAVY}}}
-.stat .l{{font-size:13px;color:{MUTED}}} .src li{{color:{MUTED};font-size:13px}}
-footer{{border-top:1px solid {LINE};margin-top:32px;padding:14px 48px;font-size:12px;color:{MUTED};display:flex;justify-content:space-between}}
-</style></head><body>
-<header>{logo_html}<div class="meta">{PRODUCT} · {_label(doc)}<br>{e(doc.generated_at)}</div></header>
-<div class="band"><div class="k">{_label(doc)}</div><h1>{e(doc.title)}</h1><div>{e(doc.subtitle)}</div></div>
-<main>{''.join(parts)}</main>
-<footer><span>{ORG}</span><span>Generated by {PRODUCT}</span></footer></body></html>"""
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(doc.title)}</title><style>
+*{{box-sizing:border-box}}body{{margin:0;font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:#{t.ink};background:#F7F7F8}}
+.wrap{{max-width:880px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 12px 40px rgba(0,0,0,.06)}}
+.hero{{background:#{t.dark};color:#{t.on_dark};padding:40px 48px}}
+.hero .top{{display:flex;justify-content:space-between;align-items:center;margin-bottom:40px}}
+.hero img{{height:44px;background:#fff;border-radius:8px;padding:6px 10px}}
+.kick{{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#{t.accent};font-weight:600}}
+h1{{font-size:36px;line-height:1.15;margin:10px 0 8px;font-weight:700}}.sub{{opacity:.8;font-size:17px}}
+main{{padding:40px 48px}}.lead{{font-size:18px;line-height:1.6}}
+h2{{font-size:20px;margin:36px 0 10px;color:#{t.primary}}}p,li{{line-height:1.65;font-size:15.5px}}
+.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:24px 0}}
+.stat{{background:#{t.soft};border-radius:12px;padding:18px}}.stat .v{{font-size:30px;font-weight:700;color:#{t.primary}}}
+.stat .l{{font-size:13px;color:#{t.muted};margin-top:4px}}.callout{{background:#{t.soft};border-radius:12px;padding:20px 22px;margin-top:28px;font-size:16px}}
+.src li{{color:#{t.muted};font-size:13px}}footer{{padding:18px 48px;font-size:12px;color:#{t.muted};display:flex;justify-content:space-between;background:#FAFAFA}}
+</style></head><body><div class="wrap">
+<div class="hero"><div class="top">{logo_html}<span style="font-size:13px;opacity:.8">{e(doc.generated_at)}</span></div>
+<div class="kick">{_label(doc)}</div><h1>{e(doc.title)}</h1><div class="sub">{e(doc.subtitle)}</div></div>
+<main>{"".join(body)}</main><footer><span>{ORG}</span><span>{PRODUCT}</span></footer></div></body></html>"""
     return page.encode("utf-8")
 
 
-# --------------------------------------------------------------------------- PDF
+# =========================================================================== PDF
 
 
 def render_pdf(doc: StudioDocument) -> bytes:
     from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
@@ -156,146 +226,247 @@ def render_pdf(doc: StudioDocument) -> bytes:
         TableStyle,
     )
 
-    navy, gold, ink, muted, line = (colors.HexColor(c) for c in (NAVY, GOLD, INK, MUTED, LINE))
+    t = _theme(doc)
+    C = lambda h: colors.HexColor("#" + h)  # noqa: E731
+    dark, primary, accent, soft, ink, muted = (
+        C(t.dark),
+        C(t.primary),
+        C(t.accent),
+        C(t.soft),
+        C(t.ink),
+        C(t.muted),
+    )
     W, H = A4
     buf = io.BytesIO()
     e = html.escape
-
     st = {
-        "h1": ParagraphStyle("h1", fontName="Helvetica-Bold", fontSize=26, leading=32, textColor=colors.white),
-        "sub": ParagraphStyle("sub", fontName="Helvetica", fontSize=13, leading=18, textColor=colors.white),
-        "kick": ParagraphStyle("kick", fontName="Helvetica-Bold", fontSize=10, leading=14, textColor=gold),
-        "h2": ParagraphStyle("h2", fontName="Helvetica-Bold", fontSize=15, leading=20, textColor=navy, spaceBefore=14, spaceAfter=6),
-        "body": ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=15.5, textColor=ink, alignment=TA_LEFT, spaceAfter=6),
-        "small": ParagraphStyle("small", fontName="Helvetica", fontSize=9, leading=12, textColor=muted),
-        "statv": ParagraphStyle("statv", fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=navy),
-        "statl": ParagraphStyle("statl", fontName="Helvetica", fontSize=8.5, leading=11, textColor=muted),
+        "kick": ParagraphStyle(
+            "k", fontName="Helvetica-Bold", fontSize=10, leading=14, textColor=accent
+        ),
+        "h1": ParagraphStyle(
+            "h1",
+            fontName="Helvetica-Bold",
+            fontSize=30,
+            leading=36,
+            textColor=colors.white,
+        ),
+        "sub": ParagraphStyle(
+            "s",
+            fontName="Helvetica",
+            fontSize=13,
+            leading=19,
+            textColor=colors.HexColor("#D4D4D8"),
+        ),
+        "h2": ParagraphStyle(
+            "h2",
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=20,
+            textColor=primary,
+            spaceBefore=16,
+            spaceAfter=6,
+        ),
+        "lead": ParagraphStyle(
+            "lead",
+            fontName="Helvetica",
+            fontSize=12.5,
+            leading=19,
+            textColor=ink,
+            spaceAfter=8,
+        ),
+        "body": ParagraphStyle(
+            "b",
+            fontName="Helvetica",
+            fontSize=10.5,
+            leading=16,
+            textColor=ink,
+            spaceAfter=6,
+        ),
+        "small": ParagraphStyle(
+            "sm", fontName="Helvetica", fontSize=9, leading=12, textColor=muted
+        ),
+        "sv": ParagraphStyle(
+            "sv", fontName="Helvetica-Bold", fontSize=20, leading=24, textColor=primary
+        ),
+        "sl": ParagraphStyle(
+            "sl", fontName="Helvetica", fontSize=8.5, leading=11, textColor=muted
+        ),
+        "call": ParagraphStyle(
+            "c", fontName="Helvetica", fontSize=11.5, leading=17, textColor=ink
+        ),
     }
 
     def bullets(items: List[str], numbered: bool = False):
         return ListFlowable(
             [ListItem(Paragraph(e(i), st["body"]), leftIndent=12) for i in items],
             bulletType="1" if numbered else "bullet",
-            bulletColor=gold,
+            bulletColor=accent,
             bulletFontName="Helvetica-Bold",
             leftIndent=14,
+            bulletFontSize=8 if not numbered else 10,
         )
 
-    def h2(text: str):
-        t = Table([["", Paragraph(e(text), st["h2"])]], colWidths=[3, None])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (0, 0), gold),
-            ("LEFTPADDING", (1, 0), (1, 0), 8),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        return t
+    def card(flowables, width=None):
+        tb = Table([[flowables]], colWidths=[width or (W - 40 * mm)])
+        tb.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), soft),
+                    ("ROUNDEDCORNERS", [8, 8, 8, 8]),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 14),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 14),
+                    ("TOPPADDING", (0, 0), (-1, -1), 12),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+                ]
+            )
+        )
+        return tb
 
     def on_cover(c, _d):
         c.saveState()
-        c.setFillColor(navy)
-        c.rect(0, 0, W, H * 0.58, stroke=0, fill=1)
-        c.setFillColor(gold)
-        c.rect(0, H * 0.58, W, 4, stroke=0, fill=1)
+        c.setFillColor(dark)
+        c.rect(0, 0, W, H, stroke=0, fill=1)
         if LOGO_PATH.exists():
-            c.drawImage(str(LOGO_PATH), 20 * mm, H - 75 * mm, width=110 * mm, height=55 * mm, preserveAspectRatio=True, mask="auto")
-        c.setFillColor(colors.white)
+            c.setFillColor(colors.white)
+            c.roundRect(
+                20 * mm, H - 44 * mm, 62 * mm, 26 * mm, 4 * mm, stroke=0, fill=1
+            )
+            c.drawImage(
+                str(LOGO_PATH),
+                23 * mm,
+                H - 42 * mm,
+                width=56 * mm,
+                height=22 * mm,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        c.setFillColor(colors.HexColor("#A1A1AA"))
         c.setFont("Helvetica", 9)
-        c.drawString(20 * mm, 14 * mm, f"{PRODUCT} · {ORG}")
-        c.drawRightString(W - 20 * mm, 14 * mm, doc.generated_at)
+        c.drawString(20 * mm, 16 * mm, f"{ORG}")
+        c.drawRightString(W - 20 * mm, 16 * mm, doc.generated_at)
         c.restoreState()
 
     def on_page(c, d):
         c.saveState()
-        c.setFillColor(navy)
-        c.rect(0, H - 14 * mm, W, 14 * mm, stroke=0, fill=1)
-        c.setFillColor(gold)
-        c.rect(0, H - 14 * mm - 2, W, 2, stroke=0, fill=1)
-        c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(20 * mm, H - 9 * mm, f"{PRODUCT}  |  {_label(doc)}")
-        c.setFont("Helvetica", 8.5)
-        title = doc.title if len(doc.title) < 70 else doc.title[:67] + "..."
-        c.drawRightString(W - 20 * mm, H - 9 * mm, title)
-        c.setStrokeColor(line)
-        c.line(20 * mm, 16 * mm, W - 20 * mm, 16 * mm)
         c.setFillColor(muted)
         c.setFont("Helvetica", 8)
+        c.drawString(20 * mm, H - 12 * mm, f"{PRODUCT}  ·  {_label(doc)}")
+        title = doc.title if len(doc.title) < 80 else doc.title[:77] + "..."
+        c.drawRightString(W - 20 * mm, H - 12 * mm, title)
         c.drawString(20 * mm, 11 * mm, ORG)
-        c.drawRightString(W - 20 * mm, 11 * mm, f"Page {d.page}")
+        c.drawRightString(W - 20 * mm, 11 * mm, str(d.page))
         c.restoreState()
 
-    story: list = [Spacer(1, H * 0.42 + 10 * mm)]
-    story.append(Paragraph(_label(doc).upper(), st["kick"]))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(e(doc.title), st["h1"]))
+    story: list = [Spacer(1, H * 0.38)]
+    story += [
+        Paragraph(_label(doc).upper(), st["kick"]),
+        Spacer(1, 8),
+        Paragraph(e(doc.title), st["h1"]),
+    ]
     if doc.subtitle:
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(e(doc.subtitle), st["sub"]))
+        story += [Spacer(1, 8), Paragraph(e(doc.subtitle), st["sub"])]
     story.append(PageBreak())
 
     if doc.summary:
-        story += [h2("Executive Summary"), Paragraph(e(doc.summary), st["body"])]
+        story += [Paragraph("Summary", st["h2"]), Paragraph(e(doc.summary), st["lead"])]
     if doc.stats:
-        row_v = [Paragraph(e(s.value), st["statv"]) for s in doc.stats[:4]]
-        row_l = [Paragraph(e(s.label), st["statl"]) for s in doc.stats[:4]]
-        width = (W - 40 * mm) / max(1, len(row_v))
-        t = Table([row_v, row_l], colWidths=[width] * len(row_v))
-        t.setStyle(TableStyle([
-            ("LINEABOVE", (0, 0), (-1, 0), 3, navy),
-            ("BOX", (0, 0), (-1, -1), 0.5, line),
-            ("INNERGRID", (0, 0), (-1, -1), 0.5, line),
-            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(LIGHT)),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("LINEBELOW", (0, 0), (-1, 0), 0, colors.white),
-        ]))
-        story += [h2("Key Figures"), t]
+        stats = doc.stats[:4]
+        gap = 4 * mm
+        cw = (W - 40 * mm - gap * (len(stats) - 1)) / len(stats)
+        cells = []
+        for s in stats:
+            cells.append(
+                card(
+                    [
+                        Paragraph(e(s.value), st["sv"]),
+                        Spacer(1, 2),
+                        Paragraph(e(s.label), st["sl"]),
+                    ],
+                    cw,
+                )
+            )
+        row = []
+        widths = []
+        for i, c_ in enumerate(cells):
+            row.append(c_)
+            widths.append(cw)
+            if i < len(cells) - 1:
+                row.append("")
+                widths.append(gap)
+        tb = Table([row], colWidths=widths)
+        tb.setStyle(
+            TableStyle(
+                [
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story += [Spacer(1, 8), tb, Spacer(1, 6)]
     if doc.key_points:
-        story += [h2("Key Points"), bullets(doc.key_points)]
-    for sec in doc.sections:
-        block = [h2(sec.heading)]
+        story += [Paragraph("Key points", st["h2"]), bullets(doc.key_points)]
+    for sec in _sections_for(doc):
+        block = [Paragraph(e(sec.heading), st["h2"])]
         if sec.body:
             block.append(Paragraph(e(sec.body), st["body"]))
         story.append(KeepTogether(block))
         if sec.bullets:
             story.append(bullets(sec.bullets))
     if doc.recommendations:
-        story += [h2("Recommendations"), bullets(doc.recommendations, numbered=True)]
+        story += [
+            Paragraph("Recommendations", st["h2"]),
+            bullets(doc.recommendations, numbered=True),
+        ]
     if doc.conclusion:
-        story += [h2("Conclusion"), Paragraph(e(doc.conclusion), st["body"])]
+        story += [Spacer(1, 10), card([Paragraph(e(doc.conclusion), st["call"])])]
     if doc.sources:
-        story += [h2("Sources")] + [Paragraph("• " + e(s), st["small"]) for s in doc.sources]
+        story += [Paragraph("Sources", st["h2"])] + [
+            Paragraph(e(s), st["small"]) for s in doc.sources
+        ]
 
-    pdf = SimpleDocTemplate(
-        buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm,
-        topMargin=24 * mm, bottomMargin=22 * mm, title=doc.title, author=f"{PRODUCT} — {ORG}",
-    )
-    pdf.build(story, onFirstPage=on_cover, onLaterPages=on_page)
+    SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=20 * mm,
+        rightMargin=20 * mm,
+        topMargin=22 * mm,
+        bottomMargin=20 * mm,
+        title=doc.title,
+        author=f"{PRODUCT}, {ORG}",
+    ).build(story, onFirstPage=on_cover, onLaterPages=on_page)
     return buf.getvalue()
 
 
-# --------------------------------------------------------------------------- DOCX
+# =========================================================================== DOCX
 
 
 def render_docx(doc: StudioDocument) -> bytes:
     from docx import Document
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Cm, Pt, RGBColor
 
-    navy = RGBColor.from_string(NAVY[1:])
-    gold = RGBColor.from_string(GOLD[1:])
-    muted = RGBColor.from_string(MUTED[1:])
-
+    t = _theme(doc)
+    rgb = RGBColor.from_string
     d = Document()
     for s in d.sections:
-        s.left_margin = s.right_margin = Cm(2.2)
+        s.left_margin = s.right_margin = Cm(2.3)
+        s.top_margin = s.bottom_margin = Cm(2)
     normal = d.styles["Normal"]
-    normal.font.name = "Calibri"
+    normal.font.name = t.body_font
     normal.font.size = Pt(11)
+    normal.font.color.rgb = rgb(t.ink)
+    normal.paragraph_format.space_after = Pt(6)
+    normal.paragraph_format.line_spacing = 1.2
+    for lvl, size in (("Heading 1", 16), ("Heading 2", 13)):
+        hs = d.styles[lvl]
+        hs.font.name = t.head_font
+        hs.font.size = Pt(size)
+        hs.font.bold = True
+        hs.font.color.rgb = rgb(t.primary)
+        hs.paragraph_format.space_before = Pt(16)
+        hs.paragraph_format.space_after = Pt(6)
 
     def shade(cell, hex_color: str):
         tcPr = cell._tc.get_or_add_tcPr()
@@ -305,312 +476,885 @@ def render_docx(doc: StudioDocument) -> bytes:
         shd.set(qn("w:fill"), hex_color)
         tcPr.append(shd)
 
-    def heading(text: str):
-        p = d.add_paragraph()
-        p.paragraph_format.space_before = Pt(14)
-        r = p.add_run("▌ ")
-        r.font.color.rgb = gold
-        r = p.add_run(text)
-        r.bold = True
-        r.font.size = Pt(15)
-        r.font.color.rgb = navy
+    def no_borders(table):
+        tbl = table._tbl
+        tblPr = tbl.tblPr
+        borders = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            el = OxmlElement(f"w:{edge}")
+            el.set(qn("w:val"), "nil")
+            borders.append(el)
+        tblPr.append(borders)
 
-    header = d.sections[0].header.paragraphs[0]
-    header.text = f"{PRODUCT} · {ORG}"
-    header.runs[0].font.size = Pt(8)
-    header.runs[0].font.color.rgb = muted
-    footer = d.sections[0].footer.paragraphs[0]
-    footer.text = f"Generated by {PRODUCT} · {doc.generated_at}"
-    footer.runs[0].font.size = Pt(8)
-    footer.runs[0].font.color.rgb = muted
+    hdr = d.sections[0].header.paragraphs[0]
+    hdr.text = f"{PRODUCT} · {_label(doc)}"
+    hdr.runs[0].font.size = Pt(8)
+    hdr.runs[0].font.color.rgb = rgb(t.muted)
+    ftr = d.sections[0].footer.paragraphs[0]
+    ftr.text = f"{ORG} · {doc.generated_at}"
+    ftr.runs[0].font.size = Pt(8)
+    ftr.runs[0].font.color.rgb = rgb(t.muted)
 
+    cover = d.add_table(rows=1, cols=1)
+    no_borders(cover)
+    cell = cover.rows[0].cells[0]
+    shade(cell, t.dark)
     if LOGO_PATH.exists():
-        d.add_picture(str(LOGO_PATH), width=Cm(8))
-    band = d.add_table(rows=1, cols=1)
-    cell = band.rows[0].cells[0]
-    shade(cell, NAVY[1:])
-    kp = cell.paragraphs[0]
+        lp = cell.paragraphs[0]
+        lp.add_run().add_picture(str(LOGO_PATH), width=Cm(5))
+        kp = cell.add_paragraph()
+    else:
+        kp = cell.paragraphs[0]
+    kp.paragraph_format.space_before = Pt(18)
     kr = kp.add_run(_label(doc).upper())
     kr.bold = True
     kr.font.size = Pt(9)
-    kr.font.color.rgb = gold
+    kr.font.color.rgb = rgb(t.accent)
     tp = cell.add_paragraph()
     tr = tp.add_run(doc.title)
     tr.bold = True
-    tr.font.size = Pt(22)
-    tr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-    if doc.subtitle:
-        sp = cell.add_paragraph()
-        sr = sp.add_run(doc.subtitle)
-        sr.font.size = Pt(12)
-        sr.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-    meta = d.add_paragraph()
-    mr = meta.add_run(f"{ORG} · {doc.generated_at}")
-    mr.font.size = Pt(9)
-    mr.font.color.rgb = muted
+    tr.font.size = Pt(26)
+    tr.font.name = t.head_font
+    tr.font.color.rgb = rgb(t.on_dark)
+    sp = cell.add_paragraph()
+    sp.paragraph_format.space_after = Pt(18)
+    sr = sp.add_run(doc.subtitle or doc.generated_at)
+    sr.font.size = Pt(12)
+    sr.font.color.rgb = rgb("D4D4D8")
 
     if doc.summary:
-        heading("Executive Summary")
-        d.add_paragraph(doc.summary)
+        d.add_heading("Summary", level=1)
+        p = d.add_paragraph(doc.summary)
+        p.runs[0].font.size = Pt(12.5)
     if doc.stats:
-        heading("Key Figures")
-        t = d.add_table(rows=2, cols=len(doc.stats[:4]))
-        t.style = "Table Grid"
-        for i, s in enumerate(doc.stats[:4]):
-            c0, c1 = t.rows[0].cells[i], t.rows[1].cells[i]
-            shade(c0, "F4F6F9")
-            r = c0.paragraphs[0].add_run(s.value)
+        stats = doc.stats[:4]
+        tb = d.add_table(rows=1, cols=len(stats))
+        no_borders(tb)
+        for i, s in enumerate(stats):
+            c = tb.rows[0].cells[i]
+            shade(c, t.soft)
+            r = c.paragraphs[0].add_run(s.value)
             r.bold = True
-            r.font.size = Pt(18)
-            r.font.color.rgb = navy
-            c0.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            r = c1.paragraphs[0].add_run(s.label)
-            r.font.size = Pt(9)
-            r.font.color.rgb = muted
-            c1.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+            r.font.size = Pt(20)
+            r.font.color.rgb = rgb(t.primary)
+            lp = c.add_paragraph()
+            lr = lp.add_run(s.label)
+            lr.font.size = Pt(9)
+            lr.font.color.rgb = rgb(t.muted)
     if doc.key_points:
-        heading("Key Points")
+        d.add_heading("Key points", level=1)
         for p in doc.key_points:
             d.add_paragraph(p, style="List Bullet")
-    for sec in doc.sections:
-        heading(sec.heading)
+    for sec in _sections_for(doc):
+        d.add_heading(sec.heading, level=1)
         if sec.body:
             d.add_paragraph(sec.body)
         for b in sec.bullets:
             d.add_paragraph(b, style="List Bullet")
     if doc.recommendations:
-        heading("Recommendations")
+        d.add_heading("Recommendations", level=1)
         for r_ in doc.recommendations:
             d.add_paragraph(r_, style="List Number")
     if doc.conclusion:
-        heading("Conclusion")
-        d.add_paragraph(doc.conclusion)
+        d.add_heading("Conclusion", level=1)
+        box = d.add_table(rows=1, cols=1)
+        no_borders(box)
+        shade(box.rows[0].cells[0], t.soft)
+        box.rows[0].cells[0].paragraphs[0].add_run(doc.conclusion).font.size = Pt(11.5)
     if doc.sources:
-        heading("Sources")
+        d.add_heading("Sources", level=2)
         for s in doc.sources:
             p = d.add_paragraph(s, style="List Bullet")
-            p.runs[0].font.color.rgb = muted
+            p.runs[0].font.color.rgb = rgb(t.muted)
+            p.runs[0].font.size = Pt(9.5)
     buf = io.BytesIO()
     d.save(buf)
     return buf.getvalue()
 
 
-# --------------------------------------------------------------------------- PPTX
+# =========================================================================== PPTX
 
 
 def render_pptx(doc: StudioDocument) -> bytes:
     from pptx import Presentation
+    from pptx.chart.data import CategoryChartData
     from pptx.dml.color import RGBColor
-    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
+    from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+    from pptx.oxml.ns import qn
     from pptx.util import Emu, Inches, Pt
 
-    navy = RGBColor.from_string(NAVY[1:])
-    gold = RGBColor.from_string(GOLD[1:])
-    ink = RGBColor.from_string(INK[1:])
-    muted = RGBColor.from_string(MUTED[1:])
-    light = RGBColor.from_string(LIGHT[1:])
-    white = RGBColor(0xFF, 0xFF, 0xFF)
-
+    t = _theme(doc)
+    RGB = RGBColor.from_string
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
     SW, SH = prs.slide_width, prs.slide_height
+    M = Inches(0.6)  # outer margin
     blank = prs.slide_layouts[6]
-    counter = {"n": 0}
+    page = {"n": 1}
 
-    def rect(slide, x, y, w, h, color):
-        s = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
+    # ---------------------------------------------------------------- primitives
+    def bg(slide, color):
+        f = slide.background.fill
+        f.solid()
+        f.fore_color.rgb = RGB(color)
+
+    def shape(slide, kind, x, y, w, h, fill, radius=None):
+        s = slide.shapes.add_shape(kind, x, y, w, h)
         s.fill.solid()
-        s.fill.fore_color.rgb = color
+        s.fill.fore_color.rgb = RGB(fill)
         s.line.fill.background()
         s.shadow.inherit = False
+        if radius is not None and kind == MSO_SHAPE.ROUNDED_RECTANGLE:
+            s.adjustments[0] = radius
         return s
 
-    def text(slide, x, y, w, h, value, size=18, color=ink, bold=False):
+    def text(
+        slide,
+        x,
+        y,
+        w,
+        h,
+        value,
+        size=16,
+        color=None,
+        bold=False,
+        font=None,
+        align=PP_ALIGN.LEFT,
+        anchor=MSO_ANCHOR.TOP,
+        italic=False,
+    ):
         tb = slide.shapes.add_textbox(x, y, w, h)
         tf = tb.text_frame
         tf.word_wrap = True
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+        tf.vertical_anchor = anchor
         p = tf.paragraphs[0]
+        p.alignment = align
         r = p.add_run()
         r.text = value
         r.font.size = Pt(size)
         r.font.bold = bold
-        r.font.color.rgb = color
-        r.font.name = "Calibri"
+        r.font.italic = italic
+        r.font.name = font or t.body_font
+        r.font.color.rgb = RGB(color or t.ink)
         return tf
 
-    def chrome(slide, title: str):
-        counter["n"] += 1
-        rect(slide, 0, 0, SW, Inches(1.1), navy)
-        rect(slide, 0, Inches(1.1), SW, Emu(45720), gold)
-        text(slide, Inches(0.6), Inches(0.22), Inches(11), Inches(0.8), title, 28, white, True)
-        text(slide, Inches(0.6), SH - Inches(0.5), Inches(9), Inches(0.4), f"{PRODUCT} · {ORG}", 10, muted)
-        text(slide, SW - Inches(1.2), SH - Inches(0.5), Inches(0.8), Inches(0.4), str(counter["n"] + 1), 10, muted)
+    def fit(value: str, base: int, max_chars: int, floor: int) -> int:
+        """Shrink the font for long text instead of letting it overflow."""
+        n = len(value)
+        if n <= max_chars:
+            return base
+        return max(floor, int(base * (max_chars / n) ** 0.5))
 
-    def bullet_box(slide, items: List[str], x, y, w, h, size=20):
+    def bullet_list(slide, items: List[str], x, y, w, h, size=18, color=None):
         tb = slide.shapes.add_textbox(x, y, w, h)
         tf = tb.text_frame
         tf.word_wrap = True
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+        total = sum(len(i) for i in items)
+        size = size if total < 260 else max(14, size - 3)
         for i, item in enumerate(items):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            p.space_after = Pt(10)
-            r0 = p.add_run()
-            r0.text = "■  "
-            r0.font.size = Pt(size - 8)
-            r0.font.color.rgb = gold
+            p.space_after = Pt(12)
+            pPr = p._p.get_or_add_pPr()
+            pPr.set("marL", str(Emu(Inches(0.3))))
+            pPr.set("indent", str(-Emu(Inches(0.3))))
+            bu_clr = pPr.makeelement(qn("a:buClr"), {})
+            srgb = bu_clr.makeelement(qn("a:srgbClr"), {"val": t.accent})
+            bu_clr.append(srgb)
+            pPr.append(bu_clr)
+            pPr.append(pPr.makeelement(qn("a:buFont"), {"typeface": "Arial"}))
+            pPr.append(pPr.makeelement(qn("a:buChar"), {"char": "•"}))
             r = p.add_run()
             r.text = item
             r.font.size = Pt(size)
-            r.font.color.rgb = ink
+            r.font.name = t.body_font
+            r.font.color.rgb = RGB(color or t.ink)
 
-    # Cover
-    s = prs.slides.add_slide(blank)
-    rect(s, 0, 0, SW, SH, white)
-    rect(s, 0, Inches(3.2), SW, Inches(4.3), navy)
-    rect(s, 0, Inches(3.2), SW, Emu(64008), gold)
-    if LOGO_PATH.exists():
-        s.shapes.add_picture(str(LOGO_PATH), Inches(0.6), Inches(0.3), height=Inches(2.7))
-    text(s, Inches(0.8), Inches(3.6), Inches(11.5), Inches(0.5), _label(doc).upper(), 14, gold, True)
-    text(s, Inches(0.8), Inches(4.1), Inches(11.5), Inches(1.6), doc.title, 40, white, True)
-    if doc.subtitle:
-        text(s, Inches(0.8), Inches(5.7), Inches(11.5), Inches(0.8), doc.subtitle, 18, white)
-    text(s, Inches(0.8), Inches(6.7), Inches(11.5), Inches(0.4), f"{ORG} · {doc.generated_at}", 12, white)
+    def title(slide, value: str, subtitle: str = ""):
+        text(
+            slide,
+            M,
+            Inches(0.55),
+            SW - 2 * M,
+            Inches(0.9),
+            value,
+            fit(value, 36, 48, 26),
+            t.primary,
+            True,
+            t.head_font,
+            anchor=MSO_ANCHOR.BOTTOM,
+        )
+        if subtitle:
+            text(slide, M, Inches(1.5), SW - 2 * M, Inches(0.5), subtitle, 16, t.muted)
 
-    if doc.summary:
-        s = prs.slides.add_slide(blank)
-        chrome(s, "Executive Summary")
-        rect(s, Inches(0.6), Inches(1.6), Emu(54864), Inches(4.8), gold)
-        text(s, Inches(0.9), Inches(1.6), Inches(11.6), Inches(4.8), doc.summary, 20, ink)
+    def footer(slide, dark=False):
+        page["n"] += 1
+        c = "A1A1AA" if dark else t.muted
+        text(
+            slide,
+            M,
+            SH - Inches(0.45),
+            Inches(8),
+            Inches(0.3),
+            f"{PRODUCT}  ·  {doc.title[:70]}",
+            10,
+            c,
+        )
+        text(
+            slide,
+            SW - M - Inches(1),
+            SH - Inches(0.45),
+            Inches(1),
+            Inches(0.3),
+            str(page["n"]),
+            10,
+            c,
+            align=PP_ALIGN.RIGHT,
+        )
 
-    if doc.stats:
-        s = prs.slides.add_slide(blank)
-        chrome(s, "Key Figures")
-        stats = doc.stats[:4]
-        gap = Inches(0.3)
-        cw = int((SW - Inches(1.2) - gap * (len(stats) - 1)) / len(stats))
+    def notes(slide, value: str):
+        if value and doc.options.speaker_notes:
+            slide.notes_slide.notes_text_frame.text = value
+
+    def number_badge(slide, x, y, n, d=Inches(0.55), fill=None, fg=None):
+        c = shape(slide, MSO_SHAPE.OVAL, x, y, d, d, fill or t.primary)
+        tf = c.text_frame
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        r = p.add_run()
+        r.text = str(n)
+        r.font.size = Pt(16)
+        r.font.bold = True
+        r.font.name = t.head_font
+        r.font.color.rgb = RGB(fg or "FFFFFF")
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+
+    def logo_card(slide, x, y, h=Inches(0.9)):
+        if not LOGO_PATH.exists():
+            return
+        w = int(h * 1.92)
+        shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, h, "FFFFFF", 0.12)
+        pad = Inches(0.08)
+        slide.shapes.add_picture(str(LOGO_PATH), x + pad, y + pad, height=h - 2 * pad)
+
+    content_top = Inches(1.9)
+    content_h = SH - content_top - Inches(0.9)
+    content_w = SW - 2 * M
+
+    # ---------------------------------------------------------------- layouts
+    def l_bullets(s, sl: Slide, idx: int):
+        title(s, sl.title, sl.subtitle)
+        left_w = int(content_w * 0.6)
+        bullet_list(s, sl.bullets[:6], M, content_top, left_w, content_h, 20)
+        px = M + left_w + Inches(0.5)
+        pw = content_w - left_w - Inches(0.5)
+        ph = min(content_h, Inches(3.6))
+        shape(s, MSO_SHAPE.ROUNDED_RECTANGLE, px, content_top, pw, ph, t.soft, 0.06)
+        lead = sl.bullets[0] if sl.bullets else sl.title
+        m = LEAD_NUMBER.match(lead)
+        big, rest = (
+            (m.group(1).strip(), m.group(2).strip() or lead)
+            if m
+            else (f"{idx:02d}", lead)
+        )
+        text(
+            s,
+            px + Inches(0.4),
+            content_top + Inches(0.35),
+            pw - Inches(0.8),
+            Inches(1.4),
+            big,
+            fit(big, 60, 7, 34),
+            t.accent,
+            True,
+            t.head_font,
+        )
+        text(
+            s,
+            px + Inches(0.4),
+            content_top + Inches(1.8),
+            pw - Inches(0.8),
+            ph - Inches(2.0),
+            rest,
+            fit(rest, 18, 80, 13),
+            t.primary,
+            False,
+            t.head_font,
+        )
+
+    def l_cards(s, sl: Slide, idx: int):
+        title(s, sl.title, sl.subtitle)
+        items = sl.bullets[:4]
+        n = len(items)
+        cols = 2 if n == 4 else n
+        rows = 2 if n == 4 else 1
+        gap = Inches(0.35)
+        cw = int((content_w - gap * (cols - 1)) / cols)
+        ch = int((content_h - gap * (rows - 1)) / rows)
+        if not any(":" in it for it in items):
+            ch = min(ch, Inches(2.0))
+        for i, item in enumerate(items):
+            r_, c_ = divmod(i, cols)
+            x = M + c_ * (cw + gap)
+            y = content_top + r_ * (ch + gap)
+            shape(s, MSO_SHAPE.ROUNDED_RECTANGLE, x, y, cw, ch, t.soft, 0.08)
+            number_badge(s, x + Inches(0.35), y + Inches(0.35), i + 1)
+            head, _, rest = item.partition(":")
+            if not rest:
+                head, rest = item, ""
+            text(
+                s,
+                x + Inches(0.35),
+                y + Inches(1.1),
+                cw - Inches(0.7),
+                Inches(0.6),
+                head.strip(),
+                fit(head, 20, 40, 15),
+                t.primary,
+                True,
+                t.head_font,
+            )
+            if rest:
+                text(
+                    s,
+                    x + Inches(0.35),
+                    y + Inches(1.75),
+                    cw - Inches(0.7),
+                    ch - Inches(2.0),
+                    rest.strip(),
+                    fit(rest, 15, 120, 12),
+                    t.ink,
+                )
+
+    def l_stats(s, sl: Slide, idx: int):
+        title(s, sl.title, sl.subtitle)
+        stats = sl.stats[:4]
+        gap = Inches(0.35)
+        cap = Inches(3.8) if (sl.bullets or len(stats) >= 3) else Inches(5.9)
+        cw = min(int((content_w - gap * (len(stats) - 1)) / len(stats)), cap)
+        ch = Inches(2.9)
+        y = content_top + Inches(0.3)
         for i, st in enumerate(stats):
-            x = Inches(0.6) + i * (cw + gap)
-            rect(s, x, Inches(2.0), cw, Inches(3.2), light)
-            rect(s, x, Inches(2.0), cw, Inches(0.08), navy)
-            text(s, x + Inches(0.25), Inches(2.5), cw - Inches(0.5), Inches(1.3), st.value, 40, navy, True)
-            text(s, x + Inches(0.25), Inches(3.9), cw - Inches(0.5), Inches(1.2), st.label, 15, muted)
+            x = M + i * (cw + gap)
+            shape(s, MSO_SHAPE.ROUNDED_RECTANGLE, x, y, cw, ch, t.soft, 0.06)
+            text(
+                s,
+                x + Inches(0.4),
+                y + Inches(0.45),
+                cw - Inches(0.8),
+                Inches(1.3),
+                st.value,
+                fit(st.value, 56, 6, 30),
+                t.primary,
+                True,
+                t.head_font,
+            )
+            text(
+                s,
+                x + Inches(0.4),
+                y + Inches(1.85),
+                cw - Inches(0.8),
+                Inches(0.9),
+                st.label,
+                fit(st.label, 17, 45, 12),
+                t.muted,
+            )
+        used = len(stats) * cw + gap * (len(stats) - 1)
+        extra = sl.bullets[:4]
+        if extra and used < content_w - Inches(3):
+            bx = M + used + Inches(0.6)
+            bullet_list(
+                s, extra, bx, y + Inches(0.2), content_w - used - Inches(0.6), ch, 17
+            )
+        elif extra:
+            text(
+                s,
+                M,
+                y + ch + Inches(0.35),
+                content_w,
+                Inches(0.6),
+                extra[0],
+                15,
+                t.ink,
+                italic=True,
+            )
 
-    if doc.key_points:
-        s = prs.slides.add_slide(blank)
-        chrome(s, "Key Points")
-        bullet_box(s, doc.key_points[:7], Inches(0.8), Inches(1.6), Inches(11.8), Inches(5.2))
+    def l_chart(s, sl: Slide, idx: int):
+        title(s, sl.title, sl.subtitle)
+        data = CategoryChartData()
+        data.categories = sl.chart_labels[:8]
+        data.add_series("Value", sl.chart_values[:8])
+        cw = int(content_w * 0.68)
+        gf = s.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, M, content_top, cw, content_h, data
+        )
+        ch = gf.chart
+        ch.has_legend = False
+        ch.has_title = False
+        plot = ch.plots[0]
+        plot.gap_width = 70
+        plot.has_data_labels = True
+        dl = plot.data_labels
+        dl.font.size = Pt(13)
+        dl.font.bold = True
+        dl.font.color.rgb = RGB(t.ink)
+        dl.position = XL_LABEL_POSITION.OUTSIDE_END
+        ser = plot.series[0]
+        ser.format.fill.solid()
+        ser.format.fill.fore_color.rgb = RGB(t.primary)
+        va = ch.value_axis
+        va.has_major_gridlines = False
+        va.visible = False
+        ca = ch.category_axis
+        ca.tick_labels.font.size = Pt(12)
+        ca.tick_labels.font.color.rgb = RGB(t.muted)
+        ca.format.line.fill.background()
+        px = M + cw + Inches(0.4)
+        pw = content_w - cw - Inches(0.4)
+        shape(
+            s, MSO_SHAPE.ROUNDED_RECTANGLE, px, content_top, pw, content_h, t.soft, 0.06
+        )
+        top_i = max(range(len(sl.chart_values)), key=lambda i: sl.chart_values[i])
+        text(
+            s,
+            px + Inches(0.35),
+            content_top + Inches(0.4),
+            pw - Inches(0.7),
+            Inches(1.1),
+            f"{sl.chart_values[top_i]:g}",
+            44,
+            t.accent,
+            True,
+            t.head_font,
+        )
+        text(
+            s,
+            px + Inches(0.35),
+            content_top + Inches(1.5),
+            pw - Inches(0.7),
+            Inches(0.8),
+            f"Highest: {sl.chart_labels[top_i]}",
+            15,
+            t.muted,
+        )
+        if sl.bullets:
+            bullet_list(
+                s,
+                sl.bullets[:3],
+                px + Inches(0.35),
+                content_top + Inches(2.4),
+                pw - Inches(0.7),
+                content_h - Inches(2.6),
+                14,
+            )
 
-    for sec in doc.sections:
-        s = prs.slides.add_slide(blank)
-        chrome(s, sec.heading)
-        y = Inches(1.5)
-        if sec.body:
-            text(s, Inches(0.8), y, Inches(11.8), Inches(1.2), sec.body, 18, muted)
-            y = Inches(2.7)
-        if sec.bullets:
-            bullet_box(s, sec.bullets[:6], Inches(0.8), y, Inches(11.8), SH - y - Inches(0.8))
+    def l_columns(s, sl: Slide, idx: int, comparison=False):
+        title(s, sl.title, sl.subtitle)
+        gap = Inches(0.4)
+        cw = int((content_w - gap) / 2)
+        rows = max(len(sl.left[:5]), len(sl.right[:5]), 1)
+        chh = min(content_h, max(Inches(2.6), Inches(1.5) + Inches(0.62) * rows))
+        for i, (head, items) in enumerate(
+            ((sl.left_title, sl.left), (sl.right_title, sl.right))
+        ):
+            x = M + i * (cw + gap)
+            highlight = comparison and i == 1
+            fill = t.primary if highlight else t.soft
+            fg = "FFFFFF" if highlight else t.ink
+            hc = "FFFFFF" if highlight else t.primary
+            shape(s, MSO_SHAPE.ROUNDED_RECTANGLE, x, content_top, cw, chh, fill, 0.05)
+            text(
+                s,
+                x + Inches(0.45),
+                content_top + Inches(0.4),
+                cw - Inches(0.9),
+                Inches(0.6),
+                head or ("Option " + "AB"[i]),
+                22,
+                hc,
+                True,
+                t.head_font,
+            )
+            bullet_list(
+                s,
+                items[:5],
+                x + Inches(0.45),
+                content_top + Inches(1.2),
+                cw - Inches(0.9),
+                chh - Inches(1.4),
+                18,
+                fg,
+            )
 
-    if doc.recommendations:
-        s = prs.slides.add_slide(blank)
-        chrome(s, "Recommendations")
-        bullet_box(s, doc.recommendations[:6], Inches(0.8), Inches(1.6), Inches(11.8), Inches(5.2))
+    def l_process(s, sl: Slide, idx: int):
+        title(s, sl.title, sl.subtitle)
+        steps = sl.steps[:5]
+        n = len(steps)
+        seg = int(content_w / n)
+        d = Inches(0.9)
+        cy = content_top + Inches(0.6)
+        line = s.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            M + int(seg / 2),
+            cy + int(d / 2),
+            M + int(seg * (n - 0.5)),
+            cy + int(d / 2),
+        )
+        line.line.color.rgb = RGB(t.soft if t.soft != "FFFFFF" else "E4E4E7")
+        line.line.width = Pt(4)
+        for i, step in enumerate(steps):
+            cx = M + seg * i + int(seg / 2) - int(d / 2)
+            number_badge(s, cx, cy, i + 1, d, t.primary if i < n - 1 else t.accent)
+            head, _, rest = step.partition(":")
+            text(
+                s,
+                M + seg * i + Inches(0.15),
+                cy + d + Inches(0.35),
+                seg - Inches(0.3),
+                Inches(0.7),
+                head.strip(),
+                fit(head, 18, 28, 13),
+                t.primary,
+                True,
+                t.head_font,
+                align=PP_ALIGN.CENTER,
+            )
+            if rest:
+                text(
+                    s,
+                    M + seg * i + Inches(0.15),
+                    cy + d + Inches(1.1),
+                    seg - Inches(0.3),
+                    Inches(1.8),
+                    rest.strip(),
+                    fit(rest, 14, 90, 11),
+                    t.muted,
+                    align=PP_ALIGN.CENTER,
+                )
 
+    def l_quote(s, sl: Slide, idx: int):
+        bg(s, t.soft)
+        text(
+            s,
+            M + Inches(0.4),
+            Inches(1.0),
+            Inches(2),
+            Inches(1.6),
+            "\u201c",
+            140,
+            t.accent,
+            True,
+            "Georgia",
+        )
+        text(
+            s,
+            M + Inches(1.2),
+            Inches(2.3),
+            content_w - Inches(2.4),
+            Inches(3),
+            sl.quote,
+            fit(sl.quote, 32, 120, 20),
+            t.primary,
+            False,
+            t.head_font,
+            italic=True,
+        )
+        text(
+            s,
+            M + Inches(1.2),
+            Inches(5.5),
+            content_w - Inches(2.4),
+            Inches(0.5),
+            sl.title,
+            16,
+            t.muted,
+            True,
+        )
+
+    layouts = {
+        "bullets": l_bullets,
+        "cards": l_cards,
+        "stats": l_stats,
+        "chart": l_chart,
+        "two_column": l_columns,
+        "comparison": lambda s, sl, i: l_columns(s, sl, i, True),
+        "process": l_process,
+        "quote": l_quote,
+    }
+
+    # ---------------------------------------------------------------- cover
     s = prs.slides.add_slide(blank)
-    rect(s, 0, 0, SW, SH, navy)
-    rect(s, 0, Inches(4.9), SW, Emu(45720), gold)
-    text(s, Inches(0.8), Inches(1.8), Inches(11.5), Inches(0.8), "Conclusion", 32, white, True)
-    text(s, Inches(0.8), Inches(2.7), Inches(11.5), Inches(2.1), doc.conclusion or "Thank you.", 20, white)
-    text(s, Inches(0.8), Inches(5.2), Inches(11.5), Inches(0.5), f"{PRODUCT} · {ORG}", 14, gold, True)
+    bg(s, t.dark)
+    logo_card(s, M, Inches(0.55))
+    text(
+        s,
+        M,
+        Inches(2.7),
+        Inches(10),
+        Inches(0.4),
+        _label(doc).upper(),
+        14,
+        t.accent,
+        True,
+    )
+    text(
+        s,
+        M,
+        Inches(3.15),
+        Inches(11.5),
+        Inches(2.0),
+        doc.title,
+        fit(doc.title, 48, 45, 32),
+        t.on_dark,
+        True,
+        t.head_font,
+    )
+    if doc.subtitle:
+        text(s, M, Inches(5.25), Inches(11), Inches(0.8), doc.subtitle, 20, "D4D4D8")
+    text(
+        s,
+        M,
+        SH - Inches(0.75),
+        Inches(10),
+        Inches(0.4),
+        f"{ORG}  ·  {doc.generated_at}",
+        12,
+        "A1A1AA",
+    )
+    notes(s, doc.summary)
+
+    slides = doc.slides
+    if not slides:  # non-deck documents rendered as PPTX: derive slides from sections
+        slides = []
+        if doc.stats:
+            slides.append(
+                Slide(layout="stats", title="Key figures", stats=doc.stats[:4])
+            )
+        for sec in _sections_for(doc):
+            slides.append(
+                Slide(
+                    layout="bullets",
+                    title=sec.heading,
+                    bullets=sec.bullets or [sec.body],
+                )
+            )
+        if doc.recommendations:
+            slides.append(
+                Slide(
+                    layout="cards",
+                    title="Recommendations",
+                    bullets=doc.recommendations[:4],
+                )
+            )
+
+    # ---------------------------------------------------------------- agenda
+    if doc.kind == "presentation" and doc.options.slide_count >= 8 and len(slides) >= 4:
+        s = prs.slides.add_slide(blank)
+        bg(s, t.light)
+        title(s, "Agenda")
+        items = [sl.title for sl in slides][:10]
+        per_col = (len(items) + 1) // 2
+        cw = int((content_w - Inches(0.6)) / 2)
+        for i, it in enumerate(items):
+            c_, r_ = divmod(i, per_col)
+            x = M + c_ * (cw + Inches(0.6))
+            y = content_top + r_ * Inches(0.85)
+            number_badge(s, x, y, i + 1, Inches(0.5), t.soft, t.primary)
+            text(
+                s,
+                x + Inches(0.75),
+                y,
+                cw - Inches(0.8),
+                Inches(0.5),
+                it,
+                fit(it, 18, 45, 13),
+                t.ink,
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
+        footer(s)
+
+    for i, sl in enumerate(slides, 1):
+        s = prs.slides.add_slide(blank)
+        bg(s, t.light)
+        layouts.get(sl.layout, l_bullets)(s, sl, i)
+        footer(s)
+        notes(s, sl.notes)
+
+    # ---------------------------------------------------------------- closing
+    s = prs.slides.add_slide(blank)
+    bg(s, t.dark)
+    recs = doc.recommendations[:3]
+    top = Inches(1.0) if recs else Inches(2.4)
+    text(s, M, top, Inches(10), Inches(0.4), "CONCLUSION", 14, t.accent, True)
+    concl = doc.conclusion or doc.summary or "Thank you."
+    text(
+        s,
+        M,
+        top + Inches(0.5),
+        Inches(11.5),
+        Inches(2.2),
+        concl,
+        fit(concl, 32, 110, 20),
+        t.on_dark,
+        False,
+        t.head_font,
+    )
+    if recs:
+        gap = Inches(0.35)
+        cw = int((content_w - gap * (len(recs) - 1)) / len(recs))
+        card_fill = t.primary if t.primary != t.dark else "27272A"
+        for i, r_ in enumerate(recs):
+            x = M + i * (cw + gap)
+            shape(
+                s,
+                MSO_SHAPE.ROUNDED_RECTANGLE,
+                x,
+                Inches(4.2),
+                cw,
+                Inches(2.2),
+                card_fill,
+                0.06,
+            )
+            number_badge(s, x + Inches(0.3), Inches(4.45), i + 1, Inches(0.5), t.accent)
+            text(
+                s,
+                x + Inches(0.3),
+                Inches(5.1),
+                cw - Inches(0.6),
+                Inches(1.2),
+                r_,
+                fit(r_, 15, 90, 11),
+                "FFFFFF",
+            )
+    footer(s, dark=True)
 
     buf = io.BytesIO()
     prs.save(buf)
     return buf.getvalue()
 
 
-# --------------------------------------------------------------------------- SVG infographic
+# =========================================================================== SVG infographic
 
 
 def render_svg(doc: StudioDocument) -> bytes:
+    t = _theme(doc)
     e = html.escape
-    W = 1080
-    y = 0
+    W, P = 1080, 64
     out: List[str] = []
 
-    def wrap(t: str, width: int) -> List[str]:
-        return textwrap.wrap(t, width) or [""]
+    def wrap(s: str, width: int) -> List[str]:
+        return textwrap.wrap(s, width) or [""]
 
     logo = _logo_data_uri()
-    out.append(f'<rect x="0" y="0" width="{W}" height="150" fill="#FFFFFF"/>')
+    title_lines = wrap(doc.title, 34)[:3]
+    hero_h = 200 + 54 * len(title_lines) + (36 if doc.subtitle else 0)
+    out.append(f'<rect x="0" y="0" width="{W}" height="{hero_h}" fill="#{t.dark}"/>')
     if logo:
-        out.append(f'<image href="{logo}" x="40" y="10" width="260" height="130" preserveAspectRatio="xMinYMid meet"/>')
-    out.append(f'<text x="{W - 40}" y="70" text-anchor="end" font-size="22" font-weight="700" fill="{NAVY}">{PRODUCT}</text>')
-    out.append(f'<text x="{W - 40}" y="98" text-anchor="end" font-size="14" fill="{MUTED}">{e(doc.generated_at)}</text>')
-    y = 150
-    title_lines = wrap(doc.title, 38)
-    band_h = 110 + 52 * len(title_lines) + (30 if doc.subtitle else 0)
-    out.append(f'<rect x="0" y="{y}" width="{W}" height="{band_h}" fill="{NAVY}"/>')
-    out.append(f'<rect x="0" y="{y}" width="{W}" height="6" fill="{GOLD}"/>')
-    out.append(f'<text x="60" y="{y + 60}" font-size="16" font-weight="700" letter-spacing="3" fill="{GOLD}">{_label(doc).upper()}</text>')
+        out.append(
+            f'<rect x="{P}" y="44" width="184" height="72" rx="12" fill="#FFFFFF"/>'
+        )
+        out.append(
+            f'<image href="{logo}" x="{P + 10}" y="50" width="164" height="60" preserveAspectRatio="xMidYMid meet"/>'
+        )
+    out.append(
+        f'<text x="{W - P}" y="88" text-anchor="end" font-size="15" fill="#A1A1AA">{e(doc.generated_at)}</text>'
+    )
+    out.append(
+        f'<text x="{P}" y="176" font-size="15" font-weight="700" letter-spacing="3" fill="#{t.accent}">{_label(doc).upper()}</text>'
+    )
     for i, ln in enumerate(title_lines):
-        out.append(f'<text x="60" y="{y + 112 + i * 52}" font-size="44" font-weight="700" fill="#FFFFFF">{e(ln)}</text>')
+        out.append(
+            f'<text x="{P}" y="{226 + i * 54}" font-size="46" font-weight="700" fill="#{t.on_dark}">{e(ln)}</text>'
+        )
     if doc.subtitle:
-        out.append(f'<text x="60" y="{y + band_h - 30}" font-size="20" fill="#DCE3EE">{e(doc.subtitle[:90])}</text>')
-    y += band_h + 40
+        out.append(
+            f'<text x="{P}" y="{hero_h - 40}" font-size="20" fill="#D4D4D8">{e(doc.subtitle[:80])}</text>'
+        )
+    y = hero_h + 48
 
     stats = doc.stats[:6]
     if stats:
-        cols = 3 if len(stats) > 4 else len(stats)
-        gap = 24
-        cw = (W - 120 - gap * (cols - 1)) / cols
+        cols = 3 if len(stats) in (3, 5, 6) else min(len(stats), 4) or 1
+        gap = 20
+        cw = (W - 2 * P - gap * (cols - 1)) / cols
         for i, st in enumerate(stats):
             r, c = divmod(i, cols)
-            x = 60 + c * (cw + gap)
-            yy = y + r * 190
-            out.append(f'<rect x="{x}" y="{yy}" width="{cw}" height="166" fill="{LIGHT}" stroke="{LINE}"/>')
-            out.append(f'<rect x="{x}" y="{yy}" width="{cw}" height="6" fill="{NAVY}"/>')
-            out.append(f'<text x="{x + cw / 2}" y="{yy + 82}" text-anchor="middle" font-size="44" font-weight="700" fill="{NAVY}">{e(st.value[:12])}</text>')
+            x = P + c * (cw + gap)
+            yy = y + r * 186
+            out.append(
+                f'<rect x="{x}" y="{yy}" width="{cw}" height="166" rx="16" fill="#{t.soft}"/>'
+            )
+            out.append(
+                f'<text x="{x + 26}" y="{yy + 78}" font-size="46" font-weight="700" fill="#{t.primary}">{e(st.value[:10])}</text>'
+            )
             for j, ln in enumerate(wrap(st.label, int(cw / 10))[:2]):
-                out.append(f'<text x="{x + cw / 2}" y="{yy + 118 + j * 22}" text-anchor="middle" font-size="16" fill="{MUTED}">{e(ln)}</text>')
-        y += ((len(stats) - 1) // cols + 1) * 190 + 20
+                out.append(
+                    f'<text x="{x + 26}" y="{yy + 116 + j * 22}" font-size="16" fill="#{t.muted}">{e(ln)}</text>'
+                )
+        y += ((len(stats) - 1) // cols + 1) * 186 + 28
 
     if doc.summary:
-        lines = wrap(doc.summary, 92)[:6]
-        out.append(f'<rect x="60" y="{y}" width="6" height="{24 * len(lines) + 30}" fill="{GOLD}"/>')
-        for i, ln in enumerate(lines):
-            out.append(f'<text x="86" y="{y + 26 + i * 24}" font-size="18" fill="{INK}">{e(ln)}</text>')
-        y += 24 * len(lines) + 60
+        for ln in wrap(doc.summary, 78)[:5]:
+            out.append(
+                f'<text x="{P}" y="{y}" font-size="20" fill="#{t.ink}">{e(ln)}</text>'
+            )
+            y += 30
+        y += 30
 
-    for idx, sec in enumerate(doc.sections[:4], 1):
-        out.append(f'<rect x="60" y="{y}" width="56" height="56" fill="{NAVY}"/>')
-        out.append(f'<text x="88" y="{y + 38}" text-anchor="middle" font-size="26" font-weight="700" fill="{GOLD}">{idx}</text>')
-        out.append(f'<text x="136" y="{y + 24}" font-size="24" font-weight="700" fill="{NAVY}">{e(sec.heading[:60])}</text>')
-        yy = y + 52
-        for ln in wrap(sec.body, 82)[:3]:
-            out.append(f'<text x="136" y="{yy}" font-size="17" fill="{INK}">{e(ln)}</text>')
-            yy += 24
+    for idx, sec in enumerate(_sections_for(doc)[:4], 1):
+        out.append(f'<circle cx="{P + 26}" cy="{y + 18}" r="26" fill="#{t.primary}"/>')
+        out.append(
+            f'<text x="{P + 26}" y="{y + 26}" text-anchor="middle" font-size="22" font-weight="700" fill="#FFFFFF">{idx}</text>'
+        )
+        out.append(
+            f'<text x="{P + 76}" y="{y + 26}" font-size="24" font-weight="700" fill="#{t.primary}">{e(sec.heading[:56])}</text>'
+        )
+        yy = y + 62
+        for ln in wrap(sec.body, 74)[:3]:
+            out.append(
+                f'<text x="{P + 76}" y="{yy}" font-size="17" fill="#{t.ink}">{e(ln)}</text>'
+            )
+            yy += 26
         for b in sec.bullets[:3]:
-            out.append(f'<rect x="138" y="{yy - 11}" width="8" height="8" fill="{GOLD}"/>')
-            out.append(f'<text x="156" y="{yy}" font-size="16" fill="{MUTED}">{e(b[:90])}</text>')
-            yy += 24
-        y = yy + 30
+            out.append(
+                f'<circle cx="{P + 82}" cy="{yy - 6}" r="4" fill="#{t.accent}"/>'
+            )
+            out.append(
+                f'<text x="{P + 96}" y="{yy}" font-size="16" fill="#{t.muted}">{e(b[:84])}</text>'
+            )
+            yy += 26
+        y = yy + 34
 
     takeaway = doc.conclusion or (doc.recommendations[0] if doc.recommendations else "")
     if takeaway:
-        lines = wrap(takeaway, 80)[:4]
-        h = 70 + 26 * len(lines)
-        out.append(f'<rect x="60" y="{y}" width="{W - 120}" height="{h}" fill="{NAVY}"/>')
-        out.append(f'<text x="90" y="{y + 38}" font-size="16" font-weight="700" letter-spacing="2" fill="{GOLD}">KEY TAKEAWAY</text>')
+        lines = wrap(takeaway, 70)[:4]
+        h = 84 + 30 * len(lines)
+        out.append(
+            f'<rect x="{P}" y="{y}" width="{W - 2 * P}" height="{h}" rx="20" fill="#{t.dark}"/>'
+        )
+        out.append(
+            f'<text x="{P + 36}" y="{y + 46}" font-size="14" font-weight="700" letter-spacing="2" fill="#{t.accent}">KEY TAKEAWAY</text>'
+        )
         for i, ln in enumerate(lines):
-            out.append(f'<text x="90" y="{y + 68 + i * 26}" font-size="19" fill="#FFFFFF">{e(ln)}</text>')
-        y += h + 30
+            out.append(
+                f'<text x="{P + 36}" y="{y + 84 + i * 30}" font-size="20" fill="#{t.on_dark}">{e(ln)}</text>'
+            )
+        y += h + 40
 
-    y += 10
-    out.append(f'<rect x="0" y="{y}" width="{W}" height="60" fill="{NAVY_DARK}"/>')
-    out.append(f'<text x="40" y="{y + 36}" font-size="15" fill="#FFFFFF">{ORG}</text>')
-    out.append(f'<text x="{W - 40}" y="{y + 36}" text-anchor="end" font-size="15" fill="{GOLD}">Generated by {PRODUCT}</text>')
-    H = y + 60
+    out.append(
+        f'<text x="{P}" y="{y + 10}" font-size="14" fill="#{t.muted}">{ORG}</text>'
+    )
+    out.append(
+        f'<text x="{W - P}" y="{y + 10}" text-anchor="end" font-size="14" fill="#{t.muted}">{PRODUCT}</text>'
+    )
+    H = y + 50
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        f'width="{W}" height="{H}" viewBox="0 0 {W} {H}" font-family="Arial, Helvetica, sans-serif">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
+        f'font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">'
         f'<rect width="{W}" height="{H}" fill="#FFFFFF"/>' + "".join(out) + "</svg>"
     )
     return svg.encode("utf-8")
@@ -618,8 +1362,16 @@ def render_svg(doc: StudioDocument) -> bytes:
 
 RENDERERS: Dict[str, Tuple[Callable[[StudioDocument], bytes], str, str]] = {
     "pdf": (render_pdf, "application/pdf", "pdf"),
-    "docx": (render_docx, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"),
-    "pptx": (render_pptx, "application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx"),
+    "docx": (
+        render_docx,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "docx",
+    ),
+    "pptx": (
+        render_pptx,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "pptx",
+    ),
     "svg": (render_svg, "image/svg+xml", "svg"),
     "html": (render_html, "text/html; charset=utf-8", "html"),
     "md": (render_md, "text/markdown; charset=utf-8", "md"),

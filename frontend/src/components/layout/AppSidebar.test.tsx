@@ -26,9 +26,8 @@ describe('AppSidebar', () => {
     const modelsButton = container.querySelector('a[href="/settings/models"] button')
     const settingsButton = container.querySelector('a[href="/settings"] button')
 
-    expect(modelsButton?.className).toContain('font-semibold')
-    expect(settingsButton?.className).toContain('font-medium')
-    expect(settingsButton?.className).not.toContain('font-semibold')
+    expect(modelsButton?.getAttribute('aria-current')).toBe('page')
+    expect(settingsButton?.getAttribute('aria-current')).toBeNull()
   })
 
   it('renders correctly when expanded', () => {
@@ -44,12 +43,11 @@ describe('AppSidebar', () => {
     render(<AppSidebar />)
 
     const themeButton = screen.getByText('common.theme').closest('button')
-    const languageButton = screen.getByText('common.language').closest('button')
     const signOutButton = screen.getByRole('button', { name: 'common.signOut' })
 
     expect(themeButton?.className.split(/\s+/)).toContain('px-3')
 
-    for (const button of [themeButton, languageButton, signOutButton]) {
+    for (const button of [themeButton, signOutButton]) {
       expect(button?.className.split(/\s+/)).toContain('gap-2')
     }
 

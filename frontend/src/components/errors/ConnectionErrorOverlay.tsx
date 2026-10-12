@@ -55,7 +55,7 @@ export function ConnectionErrorOverlay({
         </div>
 
         {/* Troubleshooting instructions */}
-        <div className="space-y-4 border-l-4 border-primary pl-4">
+        <div className="space-y-4 rounded-xl bg-muted p-4">
           <h2 className="font-semibold">{t('connectionErrors.troubleshooting')}</h2>
           <ul className="list-disc list-inside space-y-2 text-sm">
             {isApiError ? (

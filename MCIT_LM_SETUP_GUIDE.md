@@ -182,11 +182,14 @@ Create a notebook (**Notebooks → New Notebook**) and work inside it.
 | 3 | Audio / video | Add Source → Upload `.mp3` / `.mp4`, or a YouTube link | Transcript extracted (needs speech-to-text model, see §8) |
 | 4 | Chat | Chat panel → ask a question about the PDF | Answer from `qwen2.5:7b` with `[source:…]` citation |
 | 5 | Vector search | Ask and Search → Search tab → query | Ranked results from your sources |
-| 6 | Studio — PDF report | **Studio** → PDF Report → Generate → PDF | MCIT cover page, navy header, gold section bars |
-| 7 | Studio — presentation | Studio → Presentation → Generate → PowerPoint | 16:9 deck: cover with logo, figures, content, conclusion |
-| 8 | Studio — infographic | Studio → Infographic → Generate → SVG (also PDF/HTML) | One-page visual with key figures and takeaway |
-| 9 | Studio — summary | Studio → Executive Summary → Generate → Word (DOCX) | Branded Word document |
-| 10 | All formats | From any generated result click PDF, DOCX, PPTX, SVG, HTML, Markdown, Text, JSON | Each file downloads and opens |
+| 6 | Studio: presentation | Notebook → **Studio** → Presentation, pick a style, set slides to 10, formats PowerPoint + PDF → Generate | 10-slide deck: cover with logo, agenda, varied layouts (stats, chart, process, comparison, cards), closing; speaker notes in PowerPoint |
+| 7 | Studio: report | Studio → Report → Detailed → PDF + Word | Cover page, summary, key figures, sections, recommendations |
+| 8 | Studio: infographic | Studio → Infographic → SVG + PDF | One-page visual with figures and a takeaway |
+| 9 | Studio: summary | Studio → Executive summary → Word | Branded DOCX |
+| 10 | Files | Sidebar → Files | Every generated file listed, filter by type, download and delete work |
+| 10a | Assistant: end to end | Sidebar → Assistant → "Create a notebook called X, add this text as a source: ..., then make an 8-slide deck in the teal theme and a Word summary" | Steps appear live (create notebook, add source, generate file x2); two file cards to download; the new notebook exists |
+| 10b | Assistant: questions | Pick a notebook in the header, ask a question | Answer cites source titles |
+| 10c | Skills | Sidebar → Skills → toggle humanizer, add a skill | Changes persist after reload and apply to the next generation |
 | 11 | Podcast | Podcasts → Generate → profile `solo_expert`, pick the notebook | Episode finishes with playable audio (Kokoro voices) |
 | 12 | About | Sidebar → About | Product info + "Developed by eng. Ahmed Arfa" |
 
@@ -207,12 +210,20 @@ cd frontend && npm ci && npm run lint && npm run test && npm run build
 
 ---
 
+Assistant API smoke test:
+```bash
+RUN=$(curl -s -X POST localhost:5055/api/agent/runs -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"List my notebooks"}]}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+sleep 20; curl -s localhost:5055/api/agent/runs/$RUN | python3 -m json.tool | head -40
+```
+
 ## 7. Performance expectations (CPU vs GPU)
 
 | Operation | CPU only (8 cores) | NVIDIA GPU |
 |---|---|---|
 | Chat answer | 10–60 s | 1–5 s |
 | Studio document | 1–4 min | 10–30 s |
+| Assistant multi-file request (2-3 files) | 4–10 min | 30–90 s |
 | 10-min podcast | 20–60 min | 3–8 min |
 
 The UI allows up to 10 minutes per request; Next.js proxy timeout is 15 minutes. Larger notebooks
@@ -281,6 +292,10 @@ preview). Run with `.alloy/populate-env.sh && docker compose -f docker-compose.a
 | `open_notebook/exports/renderers.py` | Studio: PDF / DOCX / PPTX / SVG / HTML / MD / TXT / JSON renderers |
 | `api/routers/studio.py` | `/api/studio/*` endpoints |
 | `frontend/src/components/studio/StudioDialog.tsx` | Studio UI |
+| `open_notebook/agent/` | Assistant runner, tools, skills |
+| `api/routers/agent.py` | `/api/agent/*` endpoints |
+| `frontend/src/app/(dashboard)/assistant/` | Assistant page |
+| `open_notebook/exports/themes.py` | Studio styles |
 | `open_notebook/ai/local_defaults.py` | Local model + podcast profile bootstrap |
 | `frontend/src/app/globals.css` | Navy/gold design tokens |
 | `frontend/src/components/layout/` | Sidebar, footer, app shell |

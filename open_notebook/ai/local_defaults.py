@@ -50,7 +50,10 @@ async def _fill_podcast_profiles(llm_id: str, tts_id: Optional[str]) -> None:
             if not ep.get(field):
                 patch[field] = ensure_record_id(llm_id)
         if patch:
-            await repo_query("UPDATE $id MERGE $data;", {"id": ensure_record_id(ep["id"]), "data": patch})
+            await repo_query(
+                "UPDATE $id MERGE $data;",
+                {"id": ensure_record_id(ep["id"]), "data": patch},
+            )
     if not tts_id:
         return
     for sp in await repo_query("SELECT * FROM speaker_profile;"):
@@ -59,16 +62,25 @@ async def _fill_podcast_profiles(llm_id: str, tts_id: Optional[str]) -> None:
         speakers = []
         for spk in sp.get("speakers") or []:
             spk = dict(spk)
-            spk["voice_id"] = KOKORO_VOICE_MAP.get(spk.get("voice_id", ""), spk.get("voice_id"))
+            spk["voice_id"] = KOKORO_VOICE_MAP.get(
+                spk.get("voice_id", ""), spk.get("voice_id")
+            )
             speakers.append(spk)
         await repo_query(
             "UPDATE $id MERGE $data;",
-            {"id": ensure_record_id(sp["id"]), "data": {"voice_model": ensure_record_id(tts_id), "speakers": speakers}},
+            {
+                "id": ensure_record_id(sp["id"]),
+                "data": {"voice_model": ensure_record_id(tts_id), "speakers": speakers},
+            },
         )
 
 
 async def bootstrap_local_models() -> None:
-    if os.environ.get("MCIT_LOCAL_LLM_BOOTSTRAP", "true").lower() in ("0", "false", "no"):
+    if os.environ.get("MCIT_LOCAL_LLM_BOOTSTRAP", "true").lower() in (
+        "0",
+        "false",
+        "no",
+    ):
         return
     llm = os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:7b").strip()
     embed = os.environ.get("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text").strip()
@@ -78,7 +90,9 @@ async def bootstrap_local_models() -> None:
 
     # Self-hosted TTS (Kokoro, OpenAI-compatible) keeps podcasts fully local
     tts_id = None
-    if os.environ.get("OPENAI_COMPATIBLE_BASE_URL_TTS") or os.environ.get("OPENAI_COMPATIBLE_BASE_URL"):
+    if os.environ.get("OPENAI_COMPATIBLE_BASE_URL_TTS") or os.environ.get(
+        "OPENAI_COMPATIBLE_BASE_URL"
+    ):
         tts_name = os.environ.get("LOCAL_TTS_MODEL", "kokoro").strip()
         tts_id = await _ensure_model(tts_name, "text_to_speech", "openai_compatible")
 

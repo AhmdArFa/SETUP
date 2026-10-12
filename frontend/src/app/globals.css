@@ -5,7 +5,7 @@
 @variant dark (&:where(.dark, .dark *));
 
 /* ============================================================================
-   MCIT LM — DESIGN FOUNDATION (navy primary, gold accent)
+   MCIT LM — DESIGN FOUNDATION (neutral modern: ink primary, emerald accent)
 
    The laws, in one breath:
      fern acts · teal speaks (AI/system voice) · red destroys, and only destroys
@@ -21,9 +21,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-instrument-sans), "Helvetica Neue", Arial, sans-serif;
-  --font-mono: var(--font-spline-mono), ui-monospace, "SF Mono", Menlo, monospace;
-  --font-display: var(--font-bricolage), "Avenir Next", "Trebuchet MS", sans-serif;
+  --font-sans: var(--font-inter), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: var(--font-inter), "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -120,10 +120,10 @@
   --color-ctx-insights-tint: var(--ctx-insights-tint);
 
   /* shape — squared: instrument, not toy; floor is 4px */
-  --radius-sm: 4px;
-  --radius-md: 5px;
-  --radius-lg: 5px;
-  --radius-xl: 6px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 
   /* depth — hairlines separate; popovers own the one real shadow */
   --shadow-soft: var(--shadow-soft);
@@ -136,21 +136,21 @@
   /* --------------------------------------------------------------
      core palette — the owned hues, red-free
      -------------------------------------------------------------- */
-  --fern: #0b2a5b;
-  --fern-deep: #071d40;
-  --fern-tint: #e2e8f2;
+  --fern: #0f9d76;
+  --fern-deep: #0b7d5e;
+  --fern-tint: #e7f6f1;
 
   --sage: #5e7a54;
   --sage-deep: #47603f;
   --sage-tint: #e5ebdc;
 
-  --gold: #b8892b;
-  --gold-deep: #8a6413;
-  --gold-tint: #f5edda;
+  --gold: #b7791f;
+  --gold-deep: #8f5d14;
+  --gold-tint: #fbf1e2;
 
-  --teal: #1d4f91;
-  --teal-deep: #143a6e;
-  --teal-tint: #e3eaf5;
+  --teal: #0e8f7e;
+  --teal-deep: #0a6f62;
+  --teal-tint: #e6f5f2;
 
   --plum: #5d4991;
   --plum-tint: #eae6f3;
@@ -174,24 +174,24 @@
   /* --------------------------------------------------------------
      semantic raws — surfaces, ink, hairlines, action, danger
      -------------------------------------------------------------- */
-  --bg: #f4f6f9;
-  --bg-deep: #0b2a5b;
+  --bg: #ffffff;
+  --bg-deep: #f9f9f9;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --surface-recessed: #f4f4f0;
-  --surface-sunken: #ecece7;
+  --surface-recessed: #f4f4f5;
+  --surface-sunken: #ececee;
 
-  --ink: #23252a;
-  --ink-soft: #565a61;
-  --ink-faint: #878b92;
-  --ink-faintest: #a8abb1;
+  --ink: #18181b;
+  --ink-soft: #52525b;
+  --ink-faint: #8a8a93;
+  --ink-faintest: #a1a1aa;
 
-  --line: #e0e0da;
-  --line-soft: #e8e8e2;
-  --line-strong: #23252a;
+  --line: #ececee;
+  --line-soft: #f1f1f3;
+  --line-strong: #18181b;
 
-  --primary: #0b2a5b;
-  --primary-hover: #071d40;
+  --primary: #18181b;
+  --primary-hover: #27272a;
   --on-primary: #ffffff;
 
   --danger: #b0432d;
@@ -203,14 +203,14 @@
   --warn-tint: var(--clay-tint);
 
   /* teal evidence washes — the one sanctioned tinted text bg */
-  --excerpt-wash: #eef2f8;
+  --excerpt-wash: #f4f4f5;
   --best-match: rgba(29, 79, 145, 0.16);
   --best-match-ring: rgba(29, 79, 145, 0.16);
 
   /* depth */
-  --shadow-soft: 0 1px 2px rgba(35, 37, 42, 0.06);
-  --shadow-lift: 0 1px 3px rgba(35, 37, 42, 0.1);
-  --shadow-pop: 0 1px 2px rgba(35, 37, 42, 0.08), 0 8px 26px rgba(35, 37, 42, 0.13);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 2px 4px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.10);
   --shadow-overlay: 0 2px 6px rgba(35, 37, 42, 0.1), 0 16px 44px rgba(35, 37, 42, 0.18);
 
   /* --------------------------------------------------------------
@@ -262,7 +262,7 @@
   /* --------------------------------------------------------------
      shadcn semantic slots — the contract existing components use
      -------------------------------------------------------------- */
-  --radius: 5px;
+  --radius: 10px;
   --background: var(--bg);
   --foreground: var(--ink);
   --card: var(--surface);
@@ -279,20 +279,20 @@
   --destructive: var(--danger);
   --border: var(--line);
   --input: var(--line);
-  --ring: var(--teal);
+  --ring: #a1a1aa;
   --chart-1: var(--fern);
   --chart-2: var(--teal);
   --chart-3: var(--gold);
   --chart-4: var(--plum);
   --chart-5: var(--slate);
   --sidebar: var(--bg-deep);
-  --sidebar-foreground: #ffffff;
+  --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--on-primary);
-  --sidebar-accent: #15386f;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1c3d72;
-  --sidebar-ring: var(--teal);
+  --sidebar-accent: #ececee;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: #ececee;
+  --sidebar-ring: #a1a1aa;
 }
 
 /* ============================================================================
@@ -300,18 +300,18 @@
    ========================================================================== */
 .dark {
   /* core palette */
-  --fern: #7ea6e0;
-  --fern-deep: #9bbbe8;
-  --fern-tint: #16243b;
+  --fern: #34c79a;
+  --fern-deep: #5ad6af;
+  --fern-tint: #13261f;
   --sage: #93b084;
   --sage-deep: #a8c299;
   --sage-tint: #232b1d;
-  --gold: #d4a94a;
+  --gold: #e0a650;
   --gold-deep: #ddb55f;
   --gold-tint: #322b1b;
-  --teal: #7ea6e0;
-  --teal-deep: #9bbbe8;
-  --teal-tint: #16243b;
+  --teal: #3fc1ae;
+  --teal-deep: #64cfbf;
+  --teal-tint: #12261f;
   --plum: #a290d3;
   --plum-tint: #29253a;
   --mauve: #c892ba;
@@ -327,33 +327,37 @@
   --clay-deep: #f5a07a;
   --clay-tint: #35211a;
 
-  /* semantic raws */
-  --bg: #0f1520;
-  --bg-deep: #08101e;
-  --surface: #1e2024;
-  --surface-raised: #24262b;
-  --surface-recessed: #24262b;
-  --surface-sunken: #2b2d33;
+  --sidebar-accent: #27272a;
+  --sidebar-border: #232326;
+  --ring: #52525b;
 
-  --ink: #ecedea;
-  --ink-soft: #a9acb1;
+  /* semantic raws */
+  --bg: #0f0f10;
+  --bg-deep: #171717;
+  --surface: #18181a;
+  --surface-raised: #1f1f22;
+  --surface-recessed: #1f1f22;
+  --surface-sunken: #27272a;
+
+  --ink: #ececee;
+  --ink-soft: #a1a1aa;
   --ink-faint: #74777d;
   --ink-faintest: #63666c;
 
-  --line: #2e3036;
-  --line-soft: #26282d;
-  --line-strong: #ecedea;
+  --line: #2a2a2e;
+  --line-soft: #232326;
+  --line-strong: #ececee;
 
-  --primary: #2f5fa8;
-  --primary-hover: #3a6dba;
-  --on-primary: #ffffff;
+  --primary: #fafafa;
+  --primary-hover: #e4e4e7;
+  --on-primary: #18181b;
 
   --danger: #df7c63;
   --danger-deep: #e9937d;
   --danger-tint: #37231d;
 
   /* evidence washes */
-  --excerpt-wash: #16213a;
+  --excerpt-wash: #1f1f22;
   --best-match: rgba(126, 166, 224, 0.2);
   --best-match-ring: rgba(126, 166, 224, 0.2);
 
@@ -448,13 +452,12 @@
   }
 }
 
-/* MCIT LM: bordered buttons (theme toggle, sign out) sit on the navy sidebar */
-.app-sidebar button.border {
-  background-color: transparent;
-  color: #ffffff;
-  border-color: var(--sidebar-border);
+
+/* Lobe UI wraps the app in antd's App; keep app typography and link colors ours */
+.ant-app {
+  font-family: var(--font-sans);
+  color: inherit;
 }
-.app-sidebar button.border:hover {
-  background-color: var(--sidebar-accent) !important;
-  color: #ffffff;
+.ant-app a:not([class*="ant-"]) {
+  color: inherit;
 }

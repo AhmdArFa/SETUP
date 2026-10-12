@@ -3,9 +3,11 @@
 import { AppShell } from '@/components/layout/AppShell'
 
 const FEATURES = [
+  'Assistant that operates the whole app from chat: creates notebooks, adds sources, searches and produces files in batches',
+  'Editable skills, with no-ai-slop and humanizer enabled by default',
   'Source ingestion: PDF, video, audio and web pages',
   'Chat with your sources, with citations',
-  'MCIT Studio: PDF reports, PowerPoint presentations, infographics and executive summaries (PDF, DOCX, PPTX, SVG, HTML, MD)',
+  'Studio: presentations with selectable styles and slide counts, PDF reports, infographics and executive summaries (PDF, DOCX, PPTX, SVG, HTML, MD)',
   'Research podcast generation with local text-to-speech (Kokoro)',
   'Vector and full-text search',
   'Notebook management',
@@ -17,8 +19,8 @@ export default function AboutPage() {
     <AppShell>
       <div className="flex-1 overflow-y-auto">
         <div className="p-6 max-w-3xl flex flex-col gap-6">
-          <div className="border-l-4 border-gold pl-4">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-primary">MCIT LM</h1>
+          <div>
+            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">MCIT LM</h1>
             <p className="text-sm text-muted-foreground">Ministry of Communications and Information Technology</p>
           </div>
 
@@ -38,11 +40,11 @@ export default function AboutPage() {
           <section className="rounded-md border bg-card p-5 flex flex-col gap-2">
             <h2 className="font-semibold">Credits</h2>
             <p className="text-sm">
-              Developed by <span className="font-semibold text-primary">eng. Ahmed Arfa</span>
+              Developed by <span className="font-semibold text-foreground">eng. Ahmed Arfa</span>
             </p>
             <p className="text-sm text-muted-foreground">
               Based on{' '}
-              <a className="underline text-primary" href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noreferrer">
+              <a className="underline text-foreground" href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noreferrer">
                 Open Notebook
               </a>{' '}
               by Luis Novo and contributors, used under the MIT License.

@@ -21,9 +21,16 @@ local LLM**.
 - **Local LLM only:** uses the project's existing Ollama provider. On startup the API registers
   `qwen2.5:7b` (chat, transformations, tools, large-context) and `nomic-embed-text` (embeddings) as
   defaults for any slot that is still empty. No cloud API keys are needed.
-- **MCIT Studio:** one click in any notebook generates a professional **PDF report**, **PowerPoint
-  presentation**, **infographic** or **executive summary** in the MCIT identity, downloadable as
-  PDF, DOCX (Word), PPTX, SVG, HTML, Markdown, TXT or JSON.
+- **Assistant:** a chat agent (Assistant page, also "Ask assistant" in every notebook) that operates the
+  whole app with tools: it creates notebooks, adds links and text as sources, reads and searches them,
+  saves notes, generates Studio files (one or many per request) and starts podcasts.
+- **Studio:** presentations with six styles, 4 to 20 slides, varied layouts (stat callouts, native charts,
+  process flows, comparisons, cards, quotes) and speaker notes; PDF reports; infographics; executive
+  summaries. Options for length, tone, audience and instructions. Downloads as PDF, DOCX, PPTX, SVG,
+  HTML, Markdown, TXT or JSON, and every file is kept on the **Files** page.
+- **Skills:** writing rules injected into the assistant and Studio prompts. [no-ai-slop](https://github.com/petergyang/no-ai-slop)
+  and [humanizer](https://github.com/blader/humanizer) ship enabled; add your own on the **Skills** page.
+- **UI:** neutral modern design built with [@lobehub/ui](https://ui.lobehub.com) chat components.
 - **Fully local podcasts:** a self-hosted [Kokoro](https://github.com/remsky/Kokoro-FastAPI) TTS
   server (OpenAI-compatible) is wired into Docker Compose and registered automatically as the
   default text-to-speech model, so podcast generation needs no cloud key either.

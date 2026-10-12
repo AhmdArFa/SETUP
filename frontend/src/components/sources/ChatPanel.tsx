@@ -106,8 +106,7 @@ export function ChatPanel({
     <Card className="flex flex-col h-full flex-1 overflow-hidden">
       <CardHeader className="pb-3 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.13em] text-muted-foreground">
-            <span aria-hidden className="h-3.5 w-[3px] rounded-full bg-teal" />
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
             {title || (contextType === 'source' ? t('chat.chatWith', { name: t('navigation.sources') }) : t('chat.chatWith', { name: t('common.notebook') }))}
           </CardTitle>
           {onSelectSession && onCreateSession && onDeleteSession && (

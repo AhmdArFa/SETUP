@@ -1,9 +1,8 @@
-"""MCIT LM Studio: turn a notebook's sources and notes into a structured document.
+"""MCIT LM Studio: turn notebook material into a structured, render-ready document.
 
-One LLM call (the notebook's default chat model, local Ollama by default)
-produces a JSON document. Every renderer (PDF, DOCX, PPTX, SVG, HTML, MD)
-consumes that same structure, so a user can generate once and download in
-any format.
+One LLM call (the default transformation model, local Ollama by default)
+returns JSON. Every renderer (PDF, DOCX, PPTX, SVG, HTML, MD) consumes the
+same structure, so a user generates once and downloads any format.
 """
 
 import json
@@ -19,10 +18,23 @@ from open_notebook.domain.notebook import Notebook
 from open_notebook.exceptions import InvalidInputError
 
 ExportKind = Literal["report", "presentation", "infographic", "summary"]
+SlideLayout = Literal[
+    "bullets", "two_column", "stats", "process", "quote", "comparison", "chart", "cards"
+]
 
-# qwen2.5:7b runs with an 8k-token window through Esperanto's Ollama default,
-# so keep the source material comfortably below that.
-MAX_CONTEXT_CHARS = 18_000
+# qwen2.5:7b runs with an 8k-token window through Esperanto's Ollama default.
+MAX_CONTEXT_CHARS = 16_000
+
+
+class StudioOptions(BaseModel):
+    theme: str = "graphite"
+    slide_count: int = Field(8, ge=4, le=20)
+    length: Literal["brief", "standard", "detailed"] = "standard"
+    audience: str = "senior leadership"
+    tone: Literal["formal", "neutral", "persuasive", "plain"] = "formal"
+    speaker_notes: bool = True
+    include_sources: bool = True
+    instructions: Optional[str] = None
 
 
 class Stat(BaseModel):
@@ -36,6 +48,23 @@ class Section(BaseModel):
     bullets: List[str] = Field(default_factory=list)
 
 
+class Slide(BaseModel):
+    layout: SlideLayout = "bullets"
+    title: str
+    subtitle: str = ""
+    bullets: List[str] = Field(default_factory=list)
+    left_title: str = ""
+    left: List[str] = Field(default_factory=list)
+    right_title: str = ""
+    right: List[str] = Field(default_factory=list)
+    stats: List[Stat] = Field(default_factory=list)
+    steps: List[str] = Field(default_factory=list)
+    quote: str = ""
+    chart_labels: List[str] = Field(default_factory=list)
+    chart_values: List[float] = Field(default_factory=list)
+    notes: str = ""
+
+
 class StudioDocument(BaseModel):
     kind: ExportKind = "report"
     title: str
@@ -44,45 +73,57 @@ class StudioDocument(BaseModel):
     key_points: List[str] = Field(default_factory=list)
     stats: List[Stat] = Field(default_factory=list)
     sections: List[Section] = Field(default_factory=list)
+    slides: List[Slide] = Field(default_factory=list)
     recommendations: List[str] = Field(default_factory=list)
     conclusion: str = ""
     sources: List[str] = Field(default_factory=list)
     notebook_name: str = ""
+    options: StudioOptions = Field(default_factory=StudioOptions)
     generated_at: str = Field(
         default_factory=lambda: datetime.now().strftime("%d %B %Y")
     )
 
 
+LENGTH_HINT = {
+    "brief": "Keep it short: 2-3 sections, 2-3 sentence bodies.",
+    "standard": "4-5 sections with 3-4 sentence bodies.",
+    "detailed": "6-8 sections with 4-6 sentence bodies and specific detail.",
+}
+
 KIND_GUIDANCE: Dict[str, str] = {
-    "report": (
-        "Write a formal government research report. 4-6 sections, each with a "
-        "2-4 sentence body and 2-5 bullets. Include 3-5 recommendations."
-    ),
-    "presentation": (
-        "Write a slide deck. Each section is one slide: a short slide title as "
-        "heading, a one-sentence body, and 3-5 concise bullets (max 12 words "
-        "each). 5-8 sections."
-    ),
+    "report": "a formal research report. Include 3-5 recommendations.",
     "infographic": (
-        "Write content for a one-page infographic. 3-6 stats with short numeric "
-        "or factual values taken from the sources, 3-4 sections with a very "
-        "short body (max 25 words) and no more than 3 bullets each."
+        "a one-page infographic. 3-6 stats with short values taken from the material, "
+        "3-4 sections with a body under 25 words and at most 3 bullets each."
     ),
     "summary": (
-        "Write an executive summary: a strong 4-6 sentence summary, 5-8 key "
-        "points, 1-3 short sections, and a brief conclusion."
+        "an executive summary: a 4-6 sentence summary, 5-8 key points, 1-3 short "
+        "sections and a brief conclusion."
     ),
 }
 
-SCHEMA_HINT = """{
-  "title": "string",
-  "subtitle": "string",
-  "summary": "string",
+DOC_SCHEMA = """{
+  "title": "string", "subtitle": "string", "summary": "string",
   "key_points": ["string"],
-  "stats": [{"value": "string", "label": "string"}],
+  "stats": [{"value": "short figure", "label": "what it measures"}],
   "sections": [{"heading": "string", "body": "string", "bullets": ["string"]}],
-  "recommendations": ["string"],
-  "conclusion": "string"
+  "recommendations": ["string"], "conclusion": "string"
+}"""
+
+DECK_SCHEMA = """{
+  "title": "deck title", "subtitle": "one line",
+  "summary": "2 sentence overview",
+  "slides": [
+    {"layout": "bullets", "title": "...", "bullets": ["3-5 items, max 12 words"], "notes": "speaker notes"},
+    {"layout": "stats", "title": "...", "stats": [{"value": "4500", "label": "villages connected"}], "notes": "..."},
+    {"layout": "two_column", "title": "...", "left_title": "...", "left": ["..."], "right_title": "...", "right": ["..."], "notes": "..."},
+    {"layout": "comparison", "title": "...", "left_title": "Before", "left": ["..."], "right_title": "After", "right": ["..."], "notes": "..."},
+    {"layout": "process", "title": "...", "steps": ["3-5 short steps"], "notes": "..."},
+    {"layout": "cards", "title": "...", "bullets": ["3-4 short ideas, each 'Heading: one sentence'"], "notes": "..."},
+    {"layout": "chart", "title": "...", "chart_labels": ["A", "B"], "chart_values": [10, 20], "notes": "..."},
+    {"layout": "quote", "title": "...", "quote": "one strong sentence from the material", "notes": "..."}
+  ],
+  "conclusion": "closing message"
 }"""
 
 
@@ -117,86 +158,224 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(candidate[start : end + 1])
 
 
+def _as_list(v: Any) -> List[str]:
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [v] if v.strip() else []
+    out = []
+    for x in v:
+        if isinstance(x, dict):
+            out.append(": ".join(str(y) for y in x.values() if y))
+        elif str(x).strip():
+            out.append(str(x))
+    return out
+
+
+def _stats(v: Any) -> List[Dict[str, str]]:
+    out = []
+    for st in v or []:
+        if isinstance(st, dict) and st.get("value"):
+            out.append(
+                {"value": str(st["value"])[:16], "label": str(st.get("label", ""))}
+            )
+    return out
+
+
+def _floats(v: Any) -> List[float]:
+    out = []
+    for x in v or []:
+        try:
+            out.append(float(str(x).replace(",", "").replace("%", "")))
+        except ValueError:
+            continue
+    return out
+
+
 def _coerce(data: Dict[str, Any]) -> Dict[str, Any]:
     """Tolerate small-model schema drift (strings vs lists, missing keys)."""
-
-    def as_list(v: Any) -> List[str]:
-        if v is None:
-            return []
-        if isinstance(v, str):
-            return [v] if v.strip() else []
-        return [str(x) if not isinstance(x, dict) else " ".join(map(str, x.values())) for x in v]
-
     out: Dict[str, Any] = {
         "title": str(data.get("title") or "Untitled"),
         "subtitle": str(data.get("subtitle") or ""),
         "summary": str(data.get("summary") or ""),
-        "key_points": as_list(data.get("key_points")),
-        "recommendations": as_list(data.get("recommendations")),
+        "key_points": _as_list(data.get("key_points")),
+        "recommendations": _as_list(data.get("recommendations")),
         "conclusion": str(data.get("conclusion") or ""),
-        "stats": [],
+        "stats": _stats(data.get("stats")),
         "sections": [],
+        "slides": [],
     }
-    for st in data.get("stats") or []:
-        if isinstance(st, dict) and st.get("value"):
-            out["stats"].append({"value": str(st["value"]), "label": str(st.get("label", ""))})
     for sec in data.get("sections") or []:
         if isinstance(sec, dict):
             out["sections"].append(
                 {
                     "heading": str(sec.get("heading") or sec.get("title") or ""),
                     "body": str(sec.get("body") or sec.get("content") or ""),
-                    "bullets": as_list(sec.get("bullets")),
+                    "bullets": _as_list(sec.get("bullets")),
                 }
             )
+    valid = {
+        "bullets",
+        "two_column",
+        "stats",
+        "process",
+        "quote",
+        "comparison",
+        "chart",
+        "cards",
+    }
+    for sl in data.get("slides") or []:
+        if not isinstance(sl, dict):
+            continue
+        layout = str(sl.get("layout") or "bullets")
+        labels, values = (
+            _as_list(sl.get("chart_labels")),
+            _floats(sl.get("chart_values")),
+        )
+        slide = {
+            "layout": layout if layout in valid else "bullets",
+            "title": str(sl.get("title") or ""),
+            "subtitle": str(sl.get("subtitle") or ""),
+            "bullets": _as_list(sl.get("bullets")),
+            "left_title": str(sl.get("left_title") or ""),
+            "left": _as_list(sl.get("left")),
+            "right_title": str(sl.get("right_title") or ""),
+            "right": _as_list(sl.get("right")),
+            "stats": _stats(sl.get("stats")),
+            "steps": _as_list(sl.get("steps")),
+            "quote": str(sl.get("quote") or ""),
+            "chart_labels": labels[: len(values)],
+            "chart_values": values[: len(labels)],
+            "notes": str(sl.get("notes") or ""),
+        }
+        slide = _repair_slide(slide)
+        if slide["title"]:
+            out["slides"].append(slide)
     return out
 
 
-async def generate_document(
-    notebook: Notebook,
-    kind: ExportKind,
-    instructions: Optional[str] = None,
-    model_id: Optional[str] = None,
-) -> StudioDocument:
-    material, titles = await gather_notebook_material(notebook)
-    if not material.strip():
-        raise InvalidInputError(
-            "This notebook has no processed source text or notes to work from yet."
+def _repair_slide(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Downgrade a layout whose required content is missing, so no slide renders empty."""
+    lay = s["layout"]
+    if lay == "stats" and not s["stats"]:
+        lay = "bullets"
+    if lay == "chart" and len(s["chart_values"]) < 2:
+        lay = "stats" if s["stats"] else "bullets"
+    if lay in ("two_column", "comparison") and not (s["left"] and s["right"]):
+        s["bullets"] = s["bullets"] or (s["left"] + s["right"])
+        lay = "bullets"
+    if lay == "process" and len(s["steps"]) < 2:
+        s["bullets"] = s["bullets"] or s["steps"]
+        lay = "bullets"
+    if lay == "quote" and not s["quote"]:
+        lay = "bullets"
+    if lay == "cards" and len(s["bullets"]) < 2:
+        lay = "bullets"
+    if lay == "bullets" and not s["bullets"]:
+        s["bullets"] = (
+            s["steps"] or s["left"] + s["right"] or ([s["quote"]] if s["quote"] else [])
         )
+    s["layout"] = lay
+    return s
 
-    prompt = f"""You are a senior analyst at the Ministry of Communications and Information Technology (MCIT).
-Using ONLY the material below, produce content for a {kind}.
-{KIND_GUIDANCE[kind]}
-Write in professional, formal English. Do not invent facts that are not in the material.
-{f"Additional instructions from the user: {instructions}" if instructions else ""}
 
-Return ONLY one JSON object, no commentary, matching exactly this schema:
-{SCHEMA_HINT}
+def content_slide_count(total: int) -> int:
+    """Total slides minus the cover, closing and (for 8+ slides) agenda the renderer adds."""
+    return max(2, total - (3 if total >= 8 else 2))
+
+
+def _writing_rules() -> str:
+    try:
+        from open_notebook.agent.skills import compact_writing_rules
+
+        return compact_writing_rules()
+    except Exception as e:  # skills are an enhancement, never a hard failure
+        logger.warning(f"Could not load writing skills: {e}")
+        return ""
+
+
+def build_prompt(
+    notebook: Notebook, kind: ExportKind, material: str, o: StudioOptions
+) -> str:
+    if kind == "presentation":
+        n = content_slide_count(o.slide_count)
+        task = (
+            f'a slide deck with EXACTLY {n} content slides in the "slides" array. '
+            "Vary the layouts: use at least four different layouts, never the same layout "
+            "twice in a row. Use 'stats' or 'chart' only with numbers that appear in the "
+            "material. Bullets are fragments of at most 12 words."
+            + (
+                " Write 2-3 sentences of speaker notes per slide."
+                if o.speaker_notes
+                else ""
+            )
+        )
+        schema = DECK_SCHEMA
+    else:
+        task = KIND_GUIDANCE[kind] + " " + LENGTH_HINT[o.length]
+        schema = DOC_SCHEMA
+    rules = _writing_rules()
+    return f"""You are a senior analyst at the Ministry of Communications and Information Technology (MCIT).
+Using ONLY the material below, write the content for {task}
+Audience: {o.audience}. Tone: {o.tone}. English only.
+Never invent numbers, names, dates or facts that are not in the material.
+{f"User instructions: {o.instructions}" if o.instructions else ""}
+{rules}
+
+Return ONLY one JSON object, no commentary, matching this schema:
+{schema}
 
 Notebook: {notebook.name}
 
 MATERIAL:
 {material}
 """
+
+
+async def generate_document(
+    notebook: Notebook,
+    kind: ExportKind,
+    options: Optional[StudioOptions] = None,
+    model_id: Optional[str] = None,
+) -> StudioDocument:
+    o = options or StudioOptions()
+    material, titles = await gather_notebook_material(notebook)
+    if not material.strip():
+        raise InvalidInputError(
+            "This notebook has no processed source text or notes to work from yet."
+        )
+    prompt = build_prompt(notebook, kind, material, o)
     llm = await provision_langchain_model(
-        prompt, model_id, "transformation", max_tokens=3000
+        prompt, model_id, "transformation", max_tokens=4000
     )
     raw = ""
     for attempt in range(2):
         response = await llm.ainvoke(prompt)
-        raw = response.content if isinstance(response.content, str) else str(response.content)
+        raw = (
+            response.content
+            if isinstance(response.content, str)
+            else str(response.content)
+        )
         try:
             data = _coerce(_extract_json(raw))
+            if kind == "presentation":
+                if not data["slides"]:
+                    raise ValueError("no slides in output")
+                data["slides"] = data["slides"][: content_slide_count(o.slide_count)]
             return StudioDocument(
-                kind=kind, sources=titles, notebook_name=notebook.name, **data
+                kind=kind,
+                sources=titles if o.include_sources else [],
+                notebook_name=notebook.name,
+                options=o,
+                **data,
             )
         except Exception as e:  # malformed JSON from a small model: retry once
             logger.warning(f"Studio JSON parse failed (attempt {attempt + 1}): {e}")
-    # Last resort: keep the text rather than fail the whole job
     return StudioDocument(
         kind=kind,
         title=notebook.name,
         summary=raw[:4000],
         sources=titles,
         notebook_name=notebook.name,
+        options=o,
     )

@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { NotebookResponse } from '@/lib/types/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Archive, ArchiveRestore, Trash2, Sparkles } from 'lucide-react'
+import { Archive, ArchiveRestore, Trash2, Sparkles, MessageSquareText } from 'lucide-react'
+import Link from 'next/link'
 import { StudioDialog } from '@/components/studio/StudioDialog'
 import { useUpdateNotebook } from '@/lib/hooks/use-notebooks'
 import { NotebookDeleteDialog } from './NotebookDeleteDialog'
@@ -52,7 +53,7 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
 
   return (
     <>
-      <div className="border-b pb-6">
+      <div className="pb-2">
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1">
@@ -70,7 +71,13 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
               )}
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => setStudioOpen(true)} className="bg-gold text-[#0b2a5b] hover:bg-gold-deep hover:text-white font-semibold">
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/assistant?notebook=${encodeURIComponent(notebook.id)}`} className="text-foreground">
+                  <MessageSquareText className="h-4 w-4 mr-2" />
+                  Ask assistant
+                </Link>
+              </Button>
+              <Button size="sm" onClick={() => setStudioOpen(true)} className="font-medium">
                 <Sparkles className="h-4 w-4 mr-2" />
                 Studio
               </Button>
@@ -102,9 +109,6 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
               </Button>
             </div>
           </div>
-
-          {/* Signature: one short flat fern underline — one hue, no show */}
-          <div aria-hidden className="h-[3px] w-14 rounded-[1px] bg-fern" />
 
           <InlineEdit
             id="notebook-description"
