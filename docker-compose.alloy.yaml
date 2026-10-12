@@ -1,0 +1,56 @@
+# Alloy sandbox variant of docker-compose.yml: same services, host networking.
+# UI: 8502 · API: 5055 · SurrealDB: 8000 · Ollama: 11434
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    network_mode: host
+    user: root
+    command: ["start", "--log", "info", "--bind", "127.0.0.1:8000", "--user", "root", "--pass", "root", "rocksdb:/mydata/mydatabase.db"]
+    volumes:
+      - ./surreal_data:/mydata
+    restart: always
+
+  ollama:
+    image: ollama/ollama:latest
+    network_mode: host
+    environment:
+      - OLLAMA_HOST=127.0.0.1:11434
+    volumes:
+      - ./ollama_data:/root/.ollama
+    restart: always
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    network_mode: host
+    environment:
+      - OLLAMA_HOST=http://127.0.0.1:11434
+    entrypoint: ["sh", "-c", "sleep 3 && ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:7b} && ollama pull ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}"]
+    depends_on:
+      - ollama
+    restart: "no"
+
+  open_notebook:
+    build:
+      context: .
+      network: host
+    image: mcit-lm:local
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - IS_ALLOY=${IS_ALLOY:-false}
+      - SURREAL_URL=ws://127.0.0.1:8000/rpc
+      - SURREAL_USER=root
+      - SURREAL_PASSWORD=root
+      - SURREAL_NAMESPACE=open_notebook
+      - SURREAL_DATABASE=open_notebook
+      - OLLAMA_API_BASE=http://127.0.0.1:11434
+      - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - OPEN_NOTEBOOK_WORKER_MAX_TASKS=1
+    volumes:
+      - ./notebook_data:/app/data
+    depends_on:
+      - surrealdb
+      - ollama
+    restart: always
