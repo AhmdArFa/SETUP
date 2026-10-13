@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Search } from 'lucide-react'
+import { FolderOpen, Plus, Search } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { editorApi } from '@/lib/api/editor'
+import { useFilePanel } from '@/lib/stores/file-panel-store'
 import { toast } from 'sonner'
 
 import { AppShell } from '@/components/layout/AppShell'
@@ -15,14 +18,36 @@ const FILTERS = [
   { id: 'presentation', label: 'Presentations' },
   { id: 'report', label: 'Reports' },
   { id: 'infographic', label: 'Infographics' },
+  { id: 'spreadsheet', label: 'Spreadsheets' },
   { id: 'summary', label: 'Summaries' },
 ]
+
+const NEW_TYPES = [
+  { format: 'pptx', label: 'Presentation' },
+  { format: 'xlsx', label: 'Spreadsheet' },
+  { format: 'pdf', label: 'PDF document' },
+  { format: 'docx', label: 'Word document' },
+  { format: 'md', label: 'Markdown' },
+] as const
 
 export default function FilesPage() {
   const qc = useQueryClient()
   const { data: files = [], isLoading } = useQuery({ queryKey: ['studio-files'], queryFn: () => filesApi.list(), refetchInterval: 10000 })
   const [filter, setFilter] = useState('all')
   const [q, setQ] = useState('')
+  const [creating, setCreating] = useState(false)
+  const openPanel = useFilePanel((st) => st.open)
+
+  const createNew = async (format: (typeof NEW_TYPES)[number]['format']) => {
+    setCreating(false)
+    try {
+      const item = await editorApi.create(format, 'Untitled')
+      qc.invalidateQueries({ queryKey: ['studio-files'] })
+      openPanel(item.id)
+    } catch {
+      toast.error('Could not create the file')
+    }
+  }
 
   const shown = useMemo(
     () =>
@@ -50,8 +75,18 @@ export default function FilesPage() {
           <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-semibold tracking-tight">Files</h1>
             <p className="text-sm text-muted-foreground">
-              Every report, presentation, infographic and summary created in Studio or by the assistant.
+              Every document created in Studio, by Thoth, or from scratch. Click a file to open it in its editor.
             </p>
+          </div>
+          <div className="relative self-start">
+            <Button size="sm" onClick={() => setCreating((v) => !v)}><Plus className="mr-1.5 h-4 w-4" /> New file</Button>
+            {creating && (
+              <div className="absolute left-0 top-10 z-20 flex w-48 flex-col rounded-xl border bg-popover p-1 shadow-[var(--shadow-pop)]">
+                {NEW_TYPES.map((t) => (
+                  <button key={t.format} type="button" onClick={() => createNew(t.format)} className="rounded-lg px-3 py-2 text-left text-sm hover:bg-muted">{t.label}</button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex rounded-lg bg-muted p-1">
@@ -85,7 +120,7 @@ export default function FilesPage() {
             <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
               <FolderOpen className="h-6 w-6 text-muted-foreground" />
               <p className="text-sm font-medium">No files yet</p>
-              <p className="text-sm text-muted-foreground">Ask the assistant for a deck or open Studio in a notebook.</p>
+              <p className="text-sm text-muted-foreground">Create one with New file, ask Thoth, or open Studio in a notebook.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">

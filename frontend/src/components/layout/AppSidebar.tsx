@@ -40,6 +40,7 @@ import {
   Command,
   Info,
   MessageSquareText,
+  Gauge,
   FolderOpen,
   Sparkles,
 } from 'lucide-react'
@@ -48,7 +49,8 @@ const getNavigation = (t: TFunction) => [
   {
     title: 'Workspace',
     items: [
-      { name: 'Assistant', href: '/assistant', icon: MessageSquareText, iconClass: undefined },
+      { name: 'Thoth', href: '/agent', icon: MessageSquareText, iconClass: undefined },
+      { name: 'Usage', href: '/usage', icon: Gauge, iconClass: undefined },
       { name: 'Files', href: '/files', icon: FolderOpen, iconClass: undefined },
     ],
   },
@@ -89,7 +91,7 @@ const getNavigation = (t: TFunction) => [
 function MCITLogo({ compact = false }: { compact?: boolean }) {
   const [failed, setFailed] = useState(false)
   if (compact || failed) {
-    return <span className="text-[13px] font-semibold tracking-tight">{compact ? 'MCIT' : 'MCIT LM'}</span>
+    return <span className="text-[13px] font-semibold tracking-tight">{compact ? 'MCIT' : 'MCIT AI'}</span>
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
@@ -172,7 +174,7 @@ export function AppSidebar() {
               <div className="flex flex-col gap-1.5 min-w-0 flex-1">
                 <MCITLogo />
                 <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground px-0.5">
-                  {t('common.appName')} <span className="font-normal text-muted-foreground">AI Notebook</span>
+                  {t('common.appName')}
                 </span>
               </div>
               <Button

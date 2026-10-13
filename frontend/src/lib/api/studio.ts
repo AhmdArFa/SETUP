@@ -1,13 +1,14 @@
 import { apiClient } from './client'
 import type { AgentFile } from './agent'
 
-export type StudioKind = 'report' | 'presentation' | 'infographic' | 'summary'
-export type StudioFormat = 'pdf' | 'docx' | 'pptx' | 'svg' | 'html' | 'md' | 'txt' | 'json'
+export type StudioKind = 'report' | 'presentation' | 'infographic' | 'summary' | 'spreadsheet'
+export type StudioFormat = 'pdf' | 'docx' | 'pptx' | 'svg' | 'xlsx' | 'html' | 'md' | 'txt' | 'json'
 
 export interface StudioOptions {
   theme: string
   slide_count: number
-  length: 'brief' | 'standard' | 'detailed'
+  length: 'short' | 'medium' | 'long'
+  template: string
   audience: string
   tone: 'formal' | 'neutral' | 'persuasive' | 'plain'
   speaker_notes: boolean
@@ -43,6 +44,7 @@ export interface StudioDocument {
   slides: StudioSlide[]
   recommendations: string[]
   conclusion: string
+  tables: { name: string; columns: string[]; rows: (string | number | null)[][] }[]
   sources: string[]
   notebook_name: string
   options: StudioOptions
@@ -63,7 +65,20 @@ export interface StudioMeta {
   themes: StudioTheme[]
 }
 
+export interface StudioTemplate {
+  id: string
+  name: string
+  kinds: StudioKind[]
+  theme: string
+  brief: string
+  description: string
+}
+
 export const studioApi = {
+  templates: async (kind?: StudioKind) =>
+    (await apiClient.get<StudioTemplate[]>('/studio/templates', { params: kind ? { kind } : {} })).data,
+  job: async (params: { notebook_id: string; kind: StudioKind; formats: StudioFormat[]; options: StudioOptions; model_id?: string | null }) =>
+    (await apiClient.post<{ id: string; status: string }>('/studio/jobs', params)).data,
   meta: async () => (await apiClient.get<StudioMeta>('/studio/formats')).data,
 
   generate: async (params: { notebook_id: string; kind: StudioKind; options: StudioOptions; model_id?: string }) =>

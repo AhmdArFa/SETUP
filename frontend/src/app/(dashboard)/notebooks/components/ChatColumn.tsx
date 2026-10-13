@@ -1,6 +1,12 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { FileUp, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { sourcesApi } from '@/lib/api/sources'
+import { useCreateDialogs } from '@/lib/hooks/use-create-dialogs'
 import { useNotebookChat } from '@/lib/hooks/use-notebook-chat'
 import { useNotes } from '@/lib/hooks/use-notes'
 import { ChatPanel } from '@/components/sources/ChatPanel'
@@ -92,6 +98,9 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
   }
 
   return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <GroundingNotice sources={sources} notesCount={notes.length} />
+      <div className="min-h-0 flex-1">
     <ChatPanel
       title={t('chat.chatWithNotebook')}
       contextType="notebook"
@@ -111,5 +120,51 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
       notebookContextStats={contextStats}
       notebookId={notebookId}
     />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Assistant only answers from this notebook's processed sources. When there
+ * is nothing to ground on, say so and offer the one-click fix.
+ */
+function GroundingNotice({ sources, notesCount }: { sources: SourceListResponse[]; notesCount: number }) {
+  const qc = useQueryClient()
+  const { openSourceDialog } = useCreateDialogs()
+  const [busy, setBusy] = useState(false)
+  const pending = sources.filter((s) => s.status === 'failed' || s.status === 'error' || (s.status === 'completed' && !s.embedded))
+  if (sources.length === 0 && notesCount === 0) {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
+        <span className="text-muted-foreground">This notebook has no sources yet. The Assistant answers only from its sources.</span>
+        <Button size="sm" variant="outline" onClick={openSourceDialog}>
+          <FileUp className="mr-1.5 h-4 w-4" /> Add sources
+        </Button>
+      </div>
+    )
+  }
+  if (!pending.length) return null
+  const run = async () => {
+    setBusy(true)
+    try {
+      await Promise.all(pending.map((s) => sourcesApi.retry(s.id)))
+      toast.success(`Processing ${pending.length} source(s)`)
+      qc.invalidateQueries({ queryKey: ['sources'] })
+    } catch {
+      toast.error('Processing could not start')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
+      <span className="text-muted-foreground">
+        {pending.length} source(s) are not processed, so the Assistant cannot use them yet.
+      </span>
+      <Button size="sm" variant="outline" onClick={run} disabled={busy}>
+        <RefreshCw className="mr-1.5 h-4 w-4" /> Process now
+      </Button>
+    </div>
   )
 }

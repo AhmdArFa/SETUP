@@ -80,7 +80,6 @@ export function SourceInsightDialog({ open, onOpenChange, insight, onDelete }: S
             <div className="flex items-center gap-2">
               {displayInsight?.insight_type && (
                 <Badge variant="outline" className="gap-1.5 text-xs uppercase">
-                  <span className="h-1.5 w-1.5 rounded-full bg-teal" aria-hidden="true" />
                   {displayInsight.insight_type}
                 </Badge>
               )}

@@ -20,7 +20,7 @@ from open_notebook.exports.content import Slide, StudioDocument
 from open_notebook.exports.themes import Theme, get_theme
 
 ORG = "Ministry of Communications and Information Technology"
-PRODUCT = "MCIT LM"
+PRODUCT = "MCIT AI"
 LOGO_PATH = Path(__file__).parent / "assets" / "mcit-logo.png"
 # "170 online services" -> ("170", "online services") for the big-number panel
 LEAD_NUMBER = re.compile(
@@ -32,6 +32,7 @@ KIND_LABEL = {
     "presentation": "Presentation",
     "infographic": "Infographic",
     "summary": "Executive summary",
+    "spreadsheet": "Excel dashboard",
 }
 
 
@@ -1041,9 +1042,9 @@ def render_pptx(doc: StudioDocument) -> bytes:
         text(
             s,
             M + Inches(0.4),
-            Inches(1.0),
+            Inches(0.4),
             Inches(2),
-            Inches(1.6),
+            Inches(2.4),
             "\u201c",
             140,
             t.accent,
@@ -1360,6 +1361,190 @@ def render_svg(doc: StudioDocument) -> bytes:
     return svg.encode("utf-8")
 
 
+# =========================================================================== XLSX
+
+
+def render_xlsx(doc: StudioDocument) -> bytes:
+    """Excel dashboard: data sheets as real Excel tables with totals formulas,
+    a summary-by-category sheet driven by SUMIF formulas, native charts, KPIs."""
+    from openpyxl import Workbook
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table as XLTable
+    from openpyxl.worksheet.table import TableStyleInfo
+
+    t = _theme(doc)
+    wb = Workbook()
+    dash = wb.active
+    dash.title = "Dashboard"
+    head_font = Font(name="Calibri", bold=True, size=20, color=t.primary)
+    dash["A1"] = doc.title
+    dash["A1"].font = head_font
+    dash["A2"] = doc.subtitle or f"{ORG} · {doc.generated_at}"
+    dash["A2"].font = Font(color=t.muted, size=11)
+    row = 4
+    if doc.stats:
+        for i, st in enumerate(doc.stats[:6]):
+            col = 1 + i * 2
+            c = dash.cell(row=row, column=col, value=st.value)
+            c.font = Font(bold=True, size=18, color=t.primary)
+            c.fill = PatternFill("solid", fgColor=t.soft)
+            lab = dash.cell(row=row + 1, column=col, value=st.label)
+            lab.font = Font(size=9, color=t.muted)
+            lab.fill = PatternFill("solid", fgColor=t.soft)
+            dash.column_dimensions[get_column_letter(col)].width = 22
+        row += 3
+    if doc.summary:
+        dash.cell(row=row, column=1, value=doc.summary).alignment = Alignment(
+            wrap_text=True, vertical="top"
+        )
+        dash.merge_cells(start_row=row, start_column=1, end_row=row + 2, end_column=10)
+        row += 4
+    chart_row = row
+
+    tables = doc.tables or []
+    for ti, tb in enumerate(tables[:8]):
+        name = (tb.name or f"Data {ti + 1}")[:28]
+        ws = wb.create_sheet(name)
+        ws.append(tb.columns)
+        for r in tb.rows:
+            ws.append(list(r) + [None] * (len(tb.columns) - len(r)))
+        n_rows = len(tb.rows)
+        n_cols = len(tb.columns)
+        for ci in range(1, n_cols + 1):
+            cell = ws.cell(row=1, column=ci)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor=t.primary)
+            width = (
+                max(
+                    len(str(tb.columns[ci - 1])),
+                    *(len(str(r[ci - 1])) for r in tb.rows if len(r) >= ci),
+                )
+                + 4
+            )
+            ws.column_dimensions[get_column_letter(ci)].width = min(48, width)
+        numeric_cols = [
+            ci
+            for ci in range(2, n_cols + 1)
+            if all(
+                isinstance(ws.cell(row=r, column=ci).value, (int, float))
+                or ws.cell(row=r, column=ci).value is None
+                for r in range(2, n_rows + 2)
+            )
+            and any(
+                isinstance(ws.cell(row=r, column=ci).value, (int, float))
+                for r in range(2, n_rows + 2)
+            )
+        ]
+        ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
+        safe = "".join(ch for ch in name if ch.isalnum()) or f"T{ti}"
+        xt = XLTable(displayName=f"{safe}_{ti}", ref=ref)
+        xt.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2", showRowStripes=True
+        )
+        ws.add_table(xt)
+        ws.freeze_panes = "A2"
+        total_row = n_rows + 2
+        ws.cell(row=total_row, column=1, value="Total").font = Font(bold=True)
+        for ci in numeric_cols:
+            L = get_column_letter(ci)
+            c = ws.cell(row=total_row, column=ci, value=f"=SUM({L}2:{L}{n_rows + 1})")
+            c.font = Font(bold=True)
+            ws.cell(row=total_row + 1, column=1, value="Average").font = Font(
+                italic=True
+            )
+            ws.cell(
+                row=total_row + 1, column=ci, value=f"=AVERAGE({L}2:{L}{n_rows + 1})"
+            ).number_format = "0.00"
+        if numeric_cols and n_rows >= 2:
+            years = all(
+                str(c).strip().isdigit() and len(str(c).strip()) == 4
+                for c in tb.columns[1:]
+            )
+            ch = LineChart() if years and n_rows <= 3 else BarChart()
+            ch.title = name
+            ch.style = 10
+            ch.height, ch.width = 7.5, 16
+            data = Reference(
+                ws,
+                min_col=numeric_cols[0],
+                max_col=numeric_cols[-1],
+                min_row=1,
+                max_row=n_rows + 1,
+            )
+            cats = Reference(ws, min_col=1, min_row=2, max_row=n_rows + 1)
+            ch.add_data(data, titles_from_data=True)
+            ch.set_categories(cats)
+            ws.add_chart(ch, f"{get_column_letter(n_cols + 2)}2")
+            dash_chart = BarChart()
+            dash_chart.title = name
+            dash_chart.height, dash_chart.width = 7.5, 16
+            dash_chart.add_data(
+                Reference(
+                    ws,
+                    min_col=numeric_cols[0],
+                    max_col=numeric_cols[-1],
+                    min_row=1,
+                    max_row=n_rows + 1,
+                ),
+                titles_from_data=True,
+            )
+            dash_chart.set_categories(
+                Reference(ws, min_col=1, min_row=2, max_row=n_rows + 1)
+            )
+            dash.add_chart(
+                dash_chart, f"{'A' if ti % 2 == 0 else 'K'}{chart_row + (ti // 2) * 16}"
+            )
+        # Summary by category (pivot-style, formula driven so it stays live when data changes)
+        if numeric_cols and n_rows >= 2:
+            cats_unique = list(dict.fromkeys(str(r[0]) for r in tb.rows if r))
+            if len(cats_unique) < n_rows:
+                pv = wb.create_sheet(f"{name[:20]} by category")
+                pv.append([tb.columns[0]] + [tb.columns[ci - 1] for ci in numeric_cols])
+                for k, cat in enumerate(cats_unique, start=2):
+                    pv.cell(row=k, column=1, value=cat)
+                    for j, ci in enumerate(numeric_cols, start=2):
+                        L = get_column_letter(ci)
+                        pv.cell(
+                            row=k,
+                            column=j,
+                            value=f"=SUMIF('{name}'!A2:A{n_rows + 1},A{k},'{name}'!{L}2:{L}{n_rows + 1})",
+                        )
+                for ci in range(1, len(numeric_cols) + 2):
+                    pv.cell(row=1, column=ci).font = Font(bold=True, color="FFFFFF")
+                    pv.cell(row=1, column=ci).fill = PatternFill(
+                        "solid", fgColor=t.primary
+                    )
+                    pv.column_dimensions[get_column_letter(ci)].width = 22
+
+    notes = wb.create_sheet("Notes")
+    notes.column_dimensions["A"].width = 110
+    r = 1
+    for sec in _sections_for(doc):
+        notes.cell(row=r, column=1, value=sec.heading).font = Font(
+            bold=True, size=13, color=t.primary
+        )
+        r += 1
+        if sec.body:
+            notes.cell(row=r, column=1, value=sec.body).alignment = Alignment(
+                wrap_text=True
+            )
+            r += 1
+        for b in sec.bullets:
+            notes.cell(row=r, column=1, value=f"• {b}")
+            r += 1
+        r += 1
+    if doc.sources:
+        notes.cell(row=r, column=1, value="Sources").font = Font(bold=True)
+        for s_ in doc.sources:
+            r += 1
+            notes.cell(row=r, column=1, value=s_)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 RENDERERS: Dict[str, Tuple[Callable[[StudioDocument], bytes], str, str]] = {
     "pdf": (render_pdf, "application/pdf", "pdf"),
     "docx": (
@@ -1373,6 +1558,11 @@ RENDERERS: Dict[str, Tuple[Callable[[StudioDocument], bytes], str, str]] = {
         "pptx",
     ),
     "svg": (render_svg, "image/svg+xml", "svg"),
+    "xlsx": (
+        render_xlsx,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xlsx",
+    ),
     "html": (render_html, "text/html; charset=utf-8", "html"),
     "md": (render_md, "text/markdown; charset=utf-8", "md"),
     "txt": (render_txt, "text/plain; charset=utf-8", "txt"),

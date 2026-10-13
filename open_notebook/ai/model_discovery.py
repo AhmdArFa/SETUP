@@ -130,8 +130,18 @@ MISTRAL_MODEL_TYPES = {
 }
 
 GROQ_MODEL_TYPES = {
-    "language": ["llama", "mixtral", "gemma", "whisper"],
+    "language": [
+        "llama",
+        "mixtral",
+        "gemma",
+        "qwen",
+        "gpt-oss",
+        "kimi",
+        "allam",
+        "compound",
+    ],
     "speech_to_text": ["whisper"],
+    "text_to_speech": ["orpheus", "playai-tts"],
 }
 
 DEEPSEEK_MODEL_TYPES = {
@@ -1016,6 +1026,10 @@ async def sync_provider_models(
 
     for model in discovered:
         model_key = (model.name.lower(), model.model_type.lower())
+
+        # Safety classifiers (prompt-guard, safeguard) are not chat models
+        if "guard" in model.name.lower():
+            continue
 
         # Check if model already exists using pre-fetched data
         if model_key in existing_keys:

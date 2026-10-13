@@ -1,55 +1,44 @@
 'use client'
 
 import { AppShell } from '@/components/layout/AppShell'
+import { ThothAvatar } from '@/components/thoth/ThothAvatar'
 
-const FEATURES = [
-  'Assistant that operates the whole app from chat: creates notebooks, adds sources, searches and produces files in batches',
-  'Editable skills, with no-ai-slop and humanizer enabled by default',
-  'Source ingestion: PDF, video, audio and web pages',
-  'Chat with your sources, with citations',
-  'Studio: presentations with selectable styles and slide counts, PDF reports, infographics and executive summaries (PDF, DOCX, PPTX, SVG, HTML, MD)',
-  'Research podcast generation with local text-to-speech (Kokoro)',
-  'Vector and full-text search',
-  'Notebook management',
-  'Local LLM inference via Ollama (qwen2.5:7b) — no cloud API keys required',
+const CAPABILITIES = [
+  'Thoth, the MCIT agent: plans and runs multi-step work across notebooks, sources, files and Studio',
+  'Assistant chat grounded in each notebook, with citations to the passages used',
+  'Studio: presentations, PDF reports in three lengths, infographics, Excel dashboards and executive summaries',
+  'In-app editors for decks, spreadsheets and Markdown, with export to your device',
+  'Podcasts and speech on the MCIT text-to-speech service',
+  'Local models by default; cloud models only with MCIT keys, metered on the Usage page',
 ]
 
 export default function AboutPage() {
   return (
     <AppShell>
       <div className="flex-1 overflow-y-auto">
-        <div className="p-6 max-w-3xl flex flex-col gap-6">
-          <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">MCIT LM</h1>
-            <p className="text-sm text-muted-foreground">Ministry of Communications and Information Technology</p>
+        <div className="mx-auto flex max-w-3xl flex-col gap-8 px-6 py-10">
+          <div className="flex items-center gap-4">
+            <ThothAvatar size={56} />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">MCIT AI</h1>
+              <p className="text-sm text-muted-foreground">Ministry of Communications and Information Technology</p>
+            </div>
           </div>
 
-          <section className="rounded-md border bg-card p-5 flex flex-col gap-3">
-            <h2 className="font-semibold">About</h2>
-            <p className="text-sm text-muted-foreground">
-              MCIT LM is a self-hosted, privacy-focused AI research assistant. All inference runs on a
-              local Ollama server, so documents never leave your infrastructure.
+          <section className="flex flex-col gap-3 rounded-xl border bg-card p-6">
+            <h2 className="font-medium">About</h2>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              MCIT AI is the ministry&apos;s private AI workspace. Data stays in MCIT&apos;s own database, and inference runs on
+              MCIT infrastructure unless an administrator connects a cloud model.
             </p>
-            <ul className="text-sm list-disc pl-5 flex flex-col gap-1">
-              {FEATURES.map((f) => (
-                <li key={f}>{f}</li>
+            <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm">
+              {CAPABILITIES.map((c) => (
+                <li key={c}>{c}</li>
               ))}
             </ul>
           </section>
 
-          <section className="rounded-md border bg-card p-5 flex flex-col gap-2">
-            <h2 className="font-semibold">Credits</h2>
-            <p className="text-sm">
-              Developed by <span className="font-semibold text-foreground">eng. Ahmed Arfa</span>
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Based on{' '}
-              <a className="underline text-foreground" href="https://github.com/lfnovo/open-notebook" target="_blank" rel="noreferrer">
-                Open Notebook
-              </a>{' '}
-              by Luis Novo and contributors, used under the MIT License.
-            </p>
-          </section>
+          <section className="rounded-xl border bg-card p-6 text-sm">Developed by Eng Ahmed Arfa for MCIT</section>
         </div>
       </div>
     </AppShell>

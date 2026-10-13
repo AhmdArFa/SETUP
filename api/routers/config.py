@@ -50,6 +50,10 @@ async def get_latest_version_cached(current_version: str) -> tuple[Optional[str]
     """
     global _version_cache
 
+    # MCIT AI is a private deployment: no outbound update check. Updates are
+    # rolled out by MCIT's own release process (see MCIT_AI_SETUP_GUIDE.md).
+    return None, False
+
     # Check if cache is still valid (within TTL)
     cache_age = time.time() - _version_cache["timestamp"]
     if _version_cache["timestamp"] > 0 and cache_age < VERSION_CACHE_TTL:

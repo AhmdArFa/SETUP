@@ -162,9 +162,15 @@ def delete_skill(skill_id: str) -> bool:
     return True
 
 
-def compact_writing_rules() -> str:
-    """Instructions from every enabled skill, capped to fit a small context window."""
-    parts = [f"[{s.name}] {s.instructions.strip()}" for s in list_skills() if s.enabled]
+def compact_writing_rules(only: Optional[List[str]] = None) -> str:
+    """Instructions from enabled skills (or exactly `only`), capped to fit a small context window."""
+    pool = list_skills()
+    picked = (
+        [s for s in pool if s.id in only]
+        if only is not None
+        else [s for s in pool if s.enabled]
+    )
+    parts = [f"[{s.name}] {s.instructions.strip()}" for s in picked]
     if not parts:
         return ""
     text = "Writing rules you must follow:\n" + "\n".join(parts)

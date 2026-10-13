@@ -158,7 +158,13 @@ async def _provision_simple_provider(provider: str) -> bool:
     # Set base URL if present
     if cred.base_url:
         provider_upper = provider_lower.upper()
-        os.environ[f"{provider_upper}_API_BASE"] = cred.base_url
+        base = cred.base_url
+        if provider_lower == "groq":
+            # The Groq SDK (used by LangChain's ChatGroq) appends /openai/v1 itself;
+            # passing the full OpenAI-compatible URL produced
+            # /openai/v1/openai/v1/chat/completions and every call failed with 404.
+            base = base.rstrip("/").removesuffix("/openai/v1")
+        os.environ[f"{provider_upper}_API_BASE"] = base
         logger.debug(f"Set {provider_upper}_API_BASE from Credential")
         # Providers with a registry-declared endpoint override (ADR-012) read
         # it under that name (esperanto's profiles and env discovery).

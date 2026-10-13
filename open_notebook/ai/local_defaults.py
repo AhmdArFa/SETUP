@@ -1,4 +1,4 @@
-"""MCIT LM: zero-cloud default model bootstrap.
+"""MCIT AI: zero-cloud default model bootstrap.
 
 On API startup, register the local Ollama models (via the existing ``ollama``
 provider, configured through ``OLLAMA_API_BASE``) and assign them as defaults
@@ -114,3 +114,37 @@ async def bootstrap_local_models() -> None:
         logger.info(f"Assigned local default models: {sorted(patch)}")
 
     await _fill_podcast_profiles(llm_id, tts_id)
+    await sync_unsynced_credentials()
+
+
+async def sync_credential_models(provider: str) -> int:
+    """Discover and register a provider's models; returns how many are registered."""
+    from open_notebook.ai.key_provider import provision_provider_keys
+    from open_notebook.ai.model_discovery import sync_provider_models
+
+    try:
+        await provision_provider_keys(provider)
+        discovered, new, existing = await sync_provider_models(
+            provider, auto_register=True
+        )
+        if new:
+            logger.info(f"Registered {new} {provider} models")
+        return new + existing
+    except Exception as e:  # never block credential saving on discovery
+        logger.warning(f"Model sync for {provider} failed: {type(e).__name__}")
+        return 0
+
+
+async def sync_unsynced_credentials() -> None:
+    """Startup repair: providers that have a credential but no registered models."""
+    rows = await repo_query("SELECT provider FROM credential GROUP BY provider;")
+    for row in rows or []:
+        provider = row.get("provider")
+        if not provider:
+            continue
+        count = await repo_query(
+            "SELECT count() AS n FROM model WHERE provider=$p GROUP ALL;",
+            {"p": provider},
+        )
+        if not count or not count[0].get("n"):
+            await sync_credential_models(provider)

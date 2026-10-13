@@ -6,6 +6,8 @@ import { useNotebookChat } from '@/lib/hooks/use-notebook-chat'
 
 // Mock the hooks
 vi.mock('@/lib/hooks/use-notes')
+vi.mock('@/lib/hooks/use-create-dialogs', () => ({ useCreateDialogs: () => ({ openSourceDialog: vi.fn() }) }))
+vi.mock('@tanstack/react-query', async (orig) => ({ ...(await orig<typeof import('@tanstack/react-query')>()), useQueryClient: () => ({ invalidateQueries: vi.fn() }) }))
 vi.mock('@/lib/hooks/use-notebook-chat')
 vi.mock('@/components/sources/ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />

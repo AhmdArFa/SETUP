@@ -8,7 +8,7 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    // MCIT LM ships an English-only, LTR interface.
+    // MCIT AI ships an English-only, LTR interface.
     lng: 'en-US',
     fallbackLng: 'en-US',
     supportedLngs: ['en-US'],

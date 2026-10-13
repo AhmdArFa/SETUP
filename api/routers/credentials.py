@@ -207,7 +207,13 @@ async def create_credential(request: CreateCredentialRequest):
             num_ctx=request.num_ctx,
         )
         await cred.save()
-        return credential_to_response(cred, 0)
+        # Register the provider's models right away so they appear in every
+        # model picker (previously a credential could exist with zero models,
+        # which is why Groq looked "unavailable").
+        from open_notebook.ai.local_defaults import sync_credential_models
+
+        registered = await sync_credential_models(cred.provider)
+        return credential_to_response(cred, registered)
 
     except HTTPException:
         raise

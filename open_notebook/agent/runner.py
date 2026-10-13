@@ -1,65 +1,46 @@
-"""MCIT LM assistant: a tool-calling agent that can operate the whole app.
+"""Thoth, the MCIT agent: a tool-calling loop over the whole app.
 
-Runs are executed as background asyncio tasks so long multi-file jobs do not
-hit HTTP timeouts. The UI polls /api/agent/runs/{id} for streamed events.
+All statuses come from the engine (open_notebook.agent.engine): a step opens
+when the model is called or a tool starts, progress lines are written by the
+code doing the work, and token counts come from provider-reported usage.
 """
 
-import asyncio
 import json
 import re
-import time
 import uuid
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from loguru import logger
 
-from open_notebook.agent.skills import compact_writing_rules
-from open_notebook.agent.tools import ToolContext, build_tools
+from open_notebook.agent import engine
+from open_notebook.agent.skills import compact_writing_rules, list_skills
+from open_notebook.agent.tools import TOOL_LABELS, ToolContext, build_tools
 from open_notebook.ai.provision import provision_langchain_model
 
 MAX_STEPS = 14
-RUN_TTL_SECONDS = 6 * 3600
 
-SYSTEM_PROMPT = """You are the MCIT LM assistant for the Ministry of Communications and Information Technology.
-You operate the MCIT LM notebook app for the user through tools. You can create notebooks, add sources
-(web pages, YouTube links, pasted text), read and search them, save notes, generate professional files
-(PDF reports, PowerPoint presentations, infographics, executive summaries in PDF, DOCX, PPTX, SVG, HTML, MD)
-and start podcasts.
+SYSTEM_PROMPT = """You are Thoth, the MCIT agent of the Ministry of Communications and Information Technology.
+You are confident, precise and direct. You operate the MCIT AI app through tools: notebooks, sources,
+uploaded files, search, notes, Studio documents (presentations, PDF reports, infographics, Excel
+dashboards, executive summaries) and podcasts.
 
 How to work:
-- Act, do not ask for permission. If the user asks for a file, call generate_file. For several files, call it once per file.
-- If no notebook is given and the task needs one, use the current notebook; otherwise list_notebooks and pick the
-  best match by name, or create_notebook when the user supplies new material.
-- Always pass the exact notebook id returned by create_notebook or list_notebooks (it looks like notebook:abc123).
-  Do things in order: create the notebook, add sources, then generate files.
-- When the user gives URLs or text to work from, add each one with add_source before generating.
-- To answer questions about content, use read_notebook or search_knowledge and cite source titles.
-- Map user wording to options: "slides"/"deck" -> presentation; "report" -> report (pdf); "word"/"docx" -> docx;
-  "infographic"/"visual" -> infographic; "summary"/"brief" -> summary. Pass slide_count, theme, tone, audience if mentioned.
-- After tools finish, reply with a short plain summary of what you did and list the files produced. Do not paste file contents.
+- Act. When the user asks for a file, call generate_file; for several files, call it once per file.
+- Pass the exact notebook id returned by tools (it looks like notebook:abc123). Work in order: create the
+  notebook if needed, add sources, then generate.
+- If the user refers to "this notebook" and no current notebook is set, call list_notebooks and pick the
+  best match. Never create an empty notebook just to generate from it.
+- Attached files are already ingested as sources; read them with read_source when you need their content.
+- To answer questions, use read_notebook, read_source or search_knowledge and cite source titles.
+- Map wording to options: deck/slides -> presentation; report/PDF -> report (length short|medium|long);
+  Excel/spreadsheet/dashboard -> spreadsheet; infographic -> infographic; summary/brief -> summary.
+  template "default" unless the user names a style (executive-briefing, data-story, program-review,
+  public-brief, ministry-official).
+- Finish with a short plain reply: what you did, the files produced, and any open audit issues.
 - Never invent facts, numbers or sources.
 {rules}
 {context}"""
-
-_runs: Dict[str, Dict[str, Any]] = {}
-
-
-def _cleanup() -> None:
-    now = time.time()
-    for rid in [r for r, v in _runs.items() if now - v["created"] > RUN_TTL_SECONDS]:
-        _runs.pop(rid, None)
-
-
-def get_run(run_id: str) -> Optional[Dict[str, Any]]:
-    return _runs.get(run_id)
-
-
-def _emit(run: Dict[str, Any], kind: str, **data) -> None:
-    run["events"].append(
-        {"seq": len(run["events"]), "type": kind, "ts": time.time(), **data}
-    )
-
 
 _TEXT_CALL = re.compile(
     r"\{\s*\"name\"\s*:\s*\"(\w+)\"\s*,\s*\"arguments\"\s*:\s*(\{.*?\})\s*\}", re.S
@@ -67,7 +48,6 @@ _TEXT_CALL = re.compile(
 
 
 def _fallback_tool_calls(content: str, names: set) -> List[Dict[str, Any]]:
-    """Some small models print tool calls as JSON text instead of native calls."""
     calls = []
     for m in _TEXT_CALL.finditer(content or ""):
         if m.group(1) in names:
@@ -84,18 +64,50 @@ def _fallback_tool_calls(content: str, names: set) -> List[Dict[str, Any]]:
     return calls
 
 
-async def _execute(
-    run: Dict[str, Any],
+def get_run(run_id: str):
+    return engine.get_run(run_id)
+
+
+async def _apply_reasoning(
+    llm, model_id: Optional[str], level: Optional[str], run: engine.Run
+) -> None:
+    if not level or level == "off":
+        return
+    from open_notebook.ai.capabilities import get_model_capabilities, reasoning_kwargs
+    from open_notebook.ai.models import DefaultModels
+
+    mid = model_id or (await DefaultModels.get_instance()).default_tools_model
+    caps = await get_model_capabilities(mid) if mid else None
+    kwargs = reasoning_kwargs(caps.get("provider") if caps else "", caps, level)
+    if not kwargs:
+        await run.progress(
+            f"Thinking level {level} is not supported by this model; running without extended reasoning"
+        )
+        return
+    for k, v in kwargs.items():
+        if hasattr(llm, k):
+            setattr(llm, k, v)
+        else:
+            mk = dict(getattr(llm, "model_kwargs", {}) or {})
+            mk[k] = v
+            llm.model_kwargs = mk
+    await run.progress(f"Thinking level: {level}")
+
+
+async def _work(
+    run: engine.Run,
     messages: List[Dict[str, str]],
     notebook_id: Optional[str],
     auth: Optional[str],
+    model_id: Optional[str],
+    thinking: Optional[str],
+    skill_ids: Optional[List[str]],
+    attachments: List[Dict[str, str]],
 ) -> None:
-    async def on_file(meta: Dict[str, Any]) -> None:
-        _emit(run, "file", file=meta)
-
-    ctx = ToolContext(auth, on_file, notebook_id)
+    ctx = ToolContext(auth, run, notebook_id)
     tools = build_tools(ctx)
     by_name = {t.name: t for t in tools}
+
     context = ""
     if notebook_id:
         try:
@@ -105,7 +117,24 @@ async def _execute(
             context = f"Current notebook: {nb.name} (id {nb.id})."
         except Exception:
             context = f"Current notebook id: {notebook_id}."
-    rules = compact_writing_rules()
+    if attachments:
+        listed = ", ".join(
+            f"{a['filename']} (source id {a['source_id']})" for a in attachments
+        )
+        context += f"\nFiles attached to this message: {listed}."
+
+    chosen = [
+        s for s in list_skills() if s.enabled and (not skill_ids or s.id in skill_ids)
+    ]
+    if skill_ids:
+        chosen = [s for s in list_skills() if s.id in skill_ids]
+    rules = compact_writing_rules(only=[s.id for s in chosen])
+    if chosen:
+        sid = run.step("Loading skills", "skill")
+        for s in chosen:
+            run.emit("skill", name=s.name)
+            await run.progress(f"Skill ready: {s.name}")
+        run.end_step(sid)
     system = SYSTEM_PROMPT.format(rules=rules, context=context)
 
     history: List[Any] = [SystemMessage(content=system)]
@@ -116,12 +145,19 @@ async def _execute(
             history.append(AIMessage(content=m["content"]))
 
     llm = await provision_langchain_model(
-        system + json.dumps(messages[-12:]), None, "tools", max_tokens=1500
+        system + json.dumps(messages[-12:]), model_id, "tools", max_tokens=1500
     )
+    model_name = (
+        getattr(llm, "model", None) or getattr(llm, "model_name", None) or "model"
+    )
+    sid = run.step("Preparing", "think")
+    await _apply_reasoning(llm, model_id, thinking, run)
+    run.end_step(sid)
     bound = llm.bind_tools(tools)
 
-    for step in range(MAX_STEPS):
-        _emit(run, "thinking", step=step)
+    for turn in range(MAX_STEPS):
+        sid = run.step("Thinking" if turn == 0 else "Reviewing results", "think")
+        await run.progress(f"Calling {model_name}")
         reply = await bound.ainvoke(history)
         calls = list(getattr(reply, "tool_calls", None) or [])
         if not calls:
@@ -129,66 +165,63 @@ async def _execute(
             if calls:
                 reply = AIMessage(content="", tool_calls=calls)
         history.append(reply)
+        await run.progress(
+            f"Model planned {len(calls)} action(s): "
+            + ", ".join(TOOL_LABELS.get(c["name"], c["name"]) for c in calls)
+            if calls
+            else "Model is writing the answer"
+        )
+        run.end_step(sid)
         if not calls:
-            text = str(reply.content).strip() or "Done."
-            _emit(run, "message", content=text)
+            run.emit("message", content=str(reply.content).strip() or "Done.")
             return
         for call in calls:
             name, args = call["name"], call.get("args") or {}
-            _emit(run, "tool_call", name=name, args=args, call_id=call.get("id"))
             tool = by_name.get(name)
+            if name != "generate_file":  # Studio jobs open their own steps
+                run.step(TOOL_LABELS.get(name, name), "tool")
+            run.emit("tool_call", name=name, args=args)
             try:
                 if not tool:
                     raise RuntimeError(f"Unknown tool {name}")
-                result = await tool.ainvoke(args)
-                ok = True
-            except Exception as e:  # report the failure to the model so it can recover
-                logger.warning(f"Agent tool {name} failed: {e}")
-                result, ok = f"ERROR: {e}", False
-            result_s = str(result)
-            _emit(
-                run,
-                "tool_result",
-                name=name,
-                ok=ok,
-                result=result_s[:1500],
-                call_id=call.get("id"),
-            )
+                result, ok = await tool.ainvoke(args), True
+            except Exception as e:
+                logger.warning(f"Thoth tool {name} failed: {type(e).__name__}")
+                result, ok = f"ERROR: {type(e).__name__}", False
+                await run.progress(f"Failed: {type(e).__name__}")
+            if run._step:
+                run.end_step(run._step, ok)
             history.append(
                 ToolMessage(
-                    content=result_s[:6000], tool_call_id=call.get("id") or name
+                    content=str(result)[:6000], tool_call_id=call.get("id") or name
                 )
             )
-    _emit(
-        run,
+    run.emit(
         "message",
-        content="I stopped after the maximum number of steps. The files produced so far are listed above.",
+        content="I stopped after the maximum number of steps. Files produced so far are listed above.",
     )
 
 
-async def _run_wrapper(run: Dict[str, Any], messages, notebook_id, auth) -> None:
-    try:
-        await _execute(run, messages, notebook_id, auth)
-        run["status"] = "completed"
-    except Exception as e:
-        logger.exception(e)
-        _emit(run, "error", message=str(e))
-        run["status"] = "failed"
-    finally:
-        run["finished"] = time.time()
-
-
 def start_run(
-    messages: List[Dict[str, str]], notebook_id: Optional[str], auth: Optional[str]
-) -> Dict[str, Any]:
-    _cleanup()
-    run = {
-        "id": uuid.uuid4().hex,
-        "status": "running",
-        "created": time.time(),
-        "events": [],
-        "notebook_id": notebook_id,
-    }
-    _runs[run["id"]] = run
-    run["task"] = asyncio.create_task(_run_wrapper(run, messages, notebook_id, auth))
-    return run
+    messages: List[Dict[str, str]],
+    notebook_id: Optional[str],
+    auth: Optional[str],
+    model_id: Optional[str] = None,
+    thinking: Optional[str] = None,
+    skill_ids: Optional[List[str]] = None,
+    attachments: Optional[List[Dict[str, str]]] = None,
+) -> engine.Run:
+    return engine.start(
+        "agent",
+        lambda run: _work(
+            run,
+            messages,
+            notebook_id,
+            auth,
+            model_id,
+            thinking,
+            skill_ids,
+            attachments or [],
+        ),
+        feature="agent",
+    )

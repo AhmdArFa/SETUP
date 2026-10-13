@@ -17,7 +17,7 @@ const themeStorage = createJSONStorage<Pick<ThemeState, 'theme'>>(() => localSto
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: 'system',
+      theme: 'dark',
       hasHydrated: !themeStorage,
 
       setHasHydrated: (state: boolean) => {

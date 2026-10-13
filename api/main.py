@@ -29,6 +29,7 @@ from api.routers import (
     chat,
     config,
     credentials,
+    editors,
     embedding,
     embedding_rebuild,
     episode_profiles,
@@ -46,6 +47,7 @@ from api.routers import (
     speaker_profiles,
     studio,
     transformations,
+    usage,
 )
 from api.routers import commands as commands_router
 from open_notebook.database.async_migrate import AsyncMigrationManager
@@ -209,7 +211,7 @@ async def lifespan(app: FastAPI):
         # Fail fast - don't start the API with an outdated database schema
         raise RuntimeError(f"Failed to run database migrations: {str(e)}") from e
 
-    # MCIT LM: register local Ollama defaults so the app works with zero cloud keys
+    # MCIT AI: register local Ollama defaults so the app works with zero cloud keys
     try:
         from open_notebook.ai.local_defaults import bootstrap_local_models
 
@@ -227,8 +229,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="MCIT LM API",
-    description="API for Open Notebook - Research Assistant",
+    title="MCIT AI API",
+    description="MCIT AI API",
     lifespan=lifespan,
 )
 
@@ -416,16 +418,18 @@ app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(studio.router, prefix="/api", tags=["studio"])
 app.include_router(agent.router, prefix="/api", tags=["agent"])
+app.include_router(usage.router, prefix="/api", tags=["usage"])
+app.include_router(editors.router, prefix="/api", tags=["editors"])
 
 
 @app.get("/")
 async def root():
     return {
-        "message": "MCIT LM API is running",
-        "name": "MCIT LM",
-        "subtitle": "Ministry of Communications and Information Technology",
-        "credit": "Developed by eng. Ahmed Arfa",
-        "based_on": "Open Notebook (https://github.com/lfnovo/open-notebook), MIT License",
+        "message": "MCIT AI API is running",
+        "name": "MCIT AI",
+        "agent": "Thoth",
+        "organization": "Ministry of Communications and Information Technology",
+        "credit": "Developed by Eng Ahmed Arfa for MCIT",
     }
 
 

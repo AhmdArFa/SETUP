@@ -58,4 +58,47 @@ async def provision_langchain_model(
             f"Please check that the model configured for '{default_type}' is a language model, not an embedding or speech model."
         )
 
-    return model.to_langchain()
+    lc = model.to_langchain()
+    resolved_id = await _resolve_model_id(
+        selection_reason, model_id, default_type, tokens
+    )
+    try:
+        from open_notebook.ai.usage import UsageCallback
+
+        lc.callbacks = [
+            UsageCallback(
+                resolved_id,
+                getattr(model, "model_name", None)
+                or getattr(lc, "model", "")
+                or "unknown",
+                _provider_of(model),
+            )
+        ]
+    except Exception as e:  # metering is best effort
+        logger.warning(f"Could not attach usage metering: {type(e).__name__}")
+    return lc
+
+
+def _provider_of(model) -> str:
+    try:
+        return str(model.provider)
+    except Exception:
+        return type(model).__name__.replace("LanguageModel", "").lower()
+
+
+async def _resolve_model_id(
+    selection_reason: str, model_id, default_type: str, tokens: int
+):
+    """Which registered model record served this call (for metering)."""
+    if model_id and not selection_reason.startswith("large_context"):
+        return str(model_id)
+    from open_notebook.ai.models import DefaultModels
+
+    d = await DefaultModels.get_instance()
+    key = "large_context" if tokens > 105_000 else default_type
+    return {
+        "chat": d.default_chat_model,
+        "transformation": d.default_transformation_model or d.default_chat_model,
+        "tools": d.default_tools_model or d.default_chat_model,
+        "large_context": d.large_context_model or d.default_chat_model,
+    }.get(key) or d.default_chat_model

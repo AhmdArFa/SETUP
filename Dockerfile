@@ -7,6 +7,9 @@
 # Stage 1: Frontend builder
 FROM node:22-slim AS frontend-builder
 WORKDIR /app/frontend
+ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_THOTH_AVATAR=false
+ENV NEXT_PUBLIC_THOTH_AVATAR=${NEXT_PUBLIC_THOTH_AVATAR}
 
 # Copy dependency files first to leverage cache
 COPY frontend/package.json frontend/package-lock.json ./
@@ -105,6 +108,7 @@ ENV VIRTUAL_ENV=/app/.venv
 ENV TIKTOKEN_CACHE_DIR=/app/tiktoken-cache
 # Bind the API to all interfaces (IPv4). Set API_HOST=:: for IPv6 dual-stack environments
 ENV API_HOST=0.0.0.0
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Caches for the opt-in heavy extraction runtimes (Docling, Crawl4AI local).
 # These live UNDER /app/data so the user's volume mount persists them across

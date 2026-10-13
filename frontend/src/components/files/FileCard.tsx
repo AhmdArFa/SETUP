@@ -6,6 +6,7 @@ import { Download, Loader2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { AgentFile, filesApi, formatBytes } from '@/lib/api/agent'
+import { useFilePanel } from '@/lib/stores/file-panel-store'
 import { cn } from '@/lib/utils'
 
 const KIND_LABEL: Record<string, string> = {
@@ -13,6 +14,7 @@ const KIND_LABEL: Record<string, string> = {
   presentation: 'Presentation',
   infographic: 'Infographic',
   summary: 'Summary',
+  spreadsheet: 'Spreadsheet',
 }
 
 export function FileCard({
@@ -25,6 +27,7 @@ export function FileCard({
   className?: string
 }) {
   const [busy, setBusy] = useState(false)
+  const openPanel = useFilePanel((s) => s.open)
 
   const download = async () => {
     setBusy(true)
@@ -45,10 +48,10 @@ export function FileCard({
       )}
     >
       <FileTypeIcon filetype={file.format} size={34} variant="color" />
-      <button type="button" onClick={download} className="flex min-w-0 flex-1 flex-col text-left">
+      <button type="button" onClick={() => openPanel(file.id)} className="flex min-w-0 flex-1 flex-col text-left" aria-label={`Open ${file.filename}`}>
         <span className="truncate text-sm font-medium">{file.filename}</span>
         <span className="truncate text-xs text-muted-foreground">
-          {KIND_LABEL[file.kind] ?? file.kind} · {file.format.toUpperCase()} · {formatBytes(file.size)}
+          {KIND_LABEL[file.kind] ?? file.kind} · {file.format.toUpperCase()} · {formatBytes(file.size)}{file.version && file.version > 1 ? ` · v${file.version}` : ''}
           {file.notebook_name ? ` · ${file.notebook_name}` : ''}
         </span>
       </button>

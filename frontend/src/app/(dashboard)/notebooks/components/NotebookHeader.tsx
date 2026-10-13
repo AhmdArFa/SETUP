@@ -72,9 +72,9 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
             </div>
             <div className="flex gap-2">
               <Button asChild size="sm" variant="outline">
-                <Link href={`/assistant?notebook=${encodeURIComponent(notebook.id)}`} className="text-foreground">
+                <Link href={`/agent?notebook=${encodeURIComponent(notebook.id)}`} className="text-foreground">
                   <MessageSquareText className="h-4 w-4 mr-2" />
-                  Ask assistant
+                  Ask Thoth
                 </Link>
               </Button>
               <Button size="sm" onClick={() => setStudioOpen(true)} className="font-medium">

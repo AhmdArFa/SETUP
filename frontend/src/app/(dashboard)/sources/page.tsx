@@ -243,13 +243,6 @@ export default function SourcesPage() {
     )
   }
 
-  // Content-type pebble — type hues live in dots, never washes
-  const getSourceTypeDotClass = (source: SourceListResponse) => {
-    if (source.asset?.url) return 'bg-type-web'
-    if (source.asset?.file_path) return 'bg-type-pdf'
-    return 'bg-type-note'
-  }
-
   const getSourceType = (source: SourceListResponse) => {
     if (source.asset?.url) return t('sources.type.link')
     if (source.asset?.file_path) return t('sources.type.file')
@@ -379,10 +372,6 @@ export default function SourcesPage() {
                 >
                   <td className="h-12 px-4">
                     <div className="flex items-center gap-2">
-                      <span
-                        aria-hidden
-                        className={cn('h-2 w-2 shrink-0 rounded-full', getSourceTypeDotClass(source))}
-                      />
                       <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                         {getSourceType(source)}
                       </span>

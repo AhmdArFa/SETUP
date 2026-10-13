@@ -22,8 +22,8 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MCIT LM",
-  description: "MCIT LM, the AI notebook of the Ministry of Communications and Information Technology",
+  title: "MCIT AI",
+  description: "MCIT AI, the private AI workspace of the Ministry of Communications and Information Technology",
 };
 
 export default function RootLayout({

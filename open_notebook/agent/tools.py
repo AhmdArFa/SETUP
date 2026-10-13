@@ -1,4 +1,4 @@
-"""Tools the MCIT LM assistant can call. They drive the whole app: notebooks,
+"""Tools the MCIT AI assistant can call. They drive the whole app: notebooks,
 sources, notes, search, Studio files and podcasts.
 
 Most tools go through the app's own REST API (same contract the UI uses), so
@@ -9,7 +9,7 @@ Studio generation is called in-process to avoid HTTP timeouts on long jobs.
 import asyncio
 import json
 import os
-from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import httpx
 from langchain_core.tools import StructuredTool
@@ -19,18 +19,31 @@ INTERNAL_API = os.environ.get("AGENT_INTERNAL_API_URL", "http://127.0.0.1:5055")
     "/"
 )
 
-FileCallback = Callable[[Dict[str, Any]], Awaitable[None]]
+TOOL_LABELS = {
+    "list_notebooks": "Looking up notebooks",
+    "create_notebook": "Creating a notebook",
+    "list_sources": "Listing sources",
+    "add_source": "Adding a source",
+    "read_notebook": "Reading the notebook",
+    "read_source": "Reading a file",
+    "search_knowledge": "Searching sources",
+    "create_note": "Saving a note",
+    "generate_file": "Generating a document",
+    "list_files": "Listing files",
+    "process_sources": "Reprocessing sources",
+    "generate_podcast": "Starting a podcast",
+}
 
 
 class ToolContext:
     def __init__(
         self,
         auth_header: Optional[str],
-        on_file: FileCallback,
+        run: Any,
         default_notebook: Optional[str],
     ):
         self.headers = {"Authorization": auth_header} if auth_header else {}
-        self.on_file = on_file
+        self.run = run
         self.default_notebook = default_notebook
 
     async def api(self, method: str, path: str, **kw) -> Any:
@@ -39,9 +52,7 @@ class ToolContext:
         ) as c:
             r = await c.request(method, f"/api{path}", **kw)
             if r.status_code >= 400:
-                raise RuntimeError(
-                    f"{method} {path} failed ({r.status_code}): {r.text[:300]}"
-                )
+                raise RuntimeError(f"{method} {path} failed ({r.status_code})")
             return r.json() if r.content else {}
 
     async def nb(self, notebook_id: Optional[str]) -> str:
@@ -119,17 +130,34 @@ class NoteArgs(BaseModel):
     content: str = Field(description="Markdown content of the note")
 
 
+class SourceArg(BaseModel):
+    source_id: str = Field(description="Source id like source:abc")
+
+
 class GenerateFileArgs(BaseModel):
     notebook_id: Optional[str] = Field(
         None,
         description="Notebook to use as material. Defaults to the current notebook.",
     )
-    kind: Literal["report", "presentation", "infographic", "summary"] = Field(
-        description="What to produce"
+    kind: Literal["report", "presentation", "infographic", "summary", "spreadsheet"] = (
+        Field(description="What to produce")
     )
-    formats: List[Literal["pdf", "docx", "pptx", "svg", "html", "md", "txt"]] = Field(
+    template: Literal[
+        "default",
+        "executive-briefing",
+        "data-story",
+        "program-review",
+        "public-brief",
+        "ministry-official",
+    ] = Field(
+        "default",
+        description="Template from the library; default is the house template",
+    )
+    formats: List[
+        Literal["pdf", "docx", "pptx", "svg", "xlsx", "html", "md", "txt"]
+    ] = Field(
         default_factory=list,
-        description="File formats. Defaults: report=pdf, presentation=pptx, infographic=svg, summary=docx",
+        description="File formats. Defaults: report=pdf, presentation=pptx, infographic=svg, summary=docx, spreadsheet=xlsx",
     )
     theme: Literal["graphite", "midnight", "teal", "terracotta", "forest", "mcit"] = (
         Field("graphite", description="Visual style")
@@ -137,7 +165,7 @@ class GenerateFileArgs(BaseModel):
     slide_count: int = Field(
         8, ge=4, le=20, description="Total slides for presentations"
     )
-    length: Literal["brief", "standard", "detailed"] = "standard"
+    length: Literal["short", "medium", "long"] = "medium"
     audience: str = "senior leadership"
     tone: Literal["formal", "neutral", "persuasive", "plain"] = "formal"
     instructions: Optional[str] = Field(
@@ -219,15 +247,23 @@ def build_tools(ctx: ToolContext) -> List[StructuredTool]:
             form["content"] = text
         if title:
             form["title"] = title
+        await ctx.run.progress(
+            f"Uploading {'link ' + url if url else 'text'} to the notebook"
+        )
         src = await ctx.api("POST", "/sources", data=form)
         sid = src["id"]
         status = src.get("status")
+        last = None
         for _ in range(90):  # wait up to ~3 minutes for processing
             if status in ("completed", "failed", "error"):
                 break
+            if status != last:
+                await ctx.run.progress(f"Processing status: {status}")
+                last = status
             await asyncio.sleep(2)
             st = await ctx.api("GET", f"/sources/{sid}/status")
             status = st.get("status")
+        await ctx.run.progress(f"Source {status}")
         info = await ctx.api("GET", f"/sources/{sid}")
         return json.dumps({"id": sid, "title": info.get("title"), "status": status})
 
@@ -236,7 +272,11 @@ def build_tools(ctx: ToolContext) -> List[StructuredTool]:
         from open_notebook.exports.content import gather_notebook_material
 
         nb = await Notebook.get(await ctx.nb(notebook_id))
+        await ctx.run.progress(f'Reading notebook "{nb.name}"')
         material, titles = await gather_notebook_material(nb)
+        await ctx.run.progress(
+            f"Read {len(material):,} characters from {len(titles)} source(s)"
+        )
         return json.dumps(
             {"notebook": nb.name, "sources": titles, "material": material[:5000]}
         )
@@ -250,9 +290,11 @@ def build_tools(ctx: ToolContext) -> List[StructuredTool]:
         }
         if notebook_id or ctx.default_notebook:
             body["notebook_id"] = await ctx.nb(notebook_id)
+        await ctx.run.progress(f'Vector search: "{query}"')
         try:
             res = await ctx.api("POST", "/search", json=body)
         except RuntimeError:
+            await ctx.run.progress("Vector search unavailable, using text search")
             body["type"] = "text"
             res = await ctx.api("POST", "/search", json=body)
         out = []
@@ -288,50 +330,59 @@ def build_tools(ctx: ToolContext) -> List[StructuredTool]:
         kind: str,
         notebook_id: Optional[str] = None,
         formats: Optional[List[str]] = None,
+        template: str = "default",
         theme: str = "graphite",
         slide_count: int = 8,
-        length: str = "standard",
+        length: str = "medium",
         audience: str = "senior leadership",
         tone: str = "formal",
         instructions: Optional[str] = None,
     ) -> str:
-        from api.routers.studio import (
-            DEFAULT_FORMAT,
-            StudioGenerateRequest,
-            run_generation,
-        )
-        from open_notebook.exports import storage
         from open_notebook.exports.content import StudioOptions
+        from open_notebook.exports.produce import produce
 
         nid = await ctx.nb(notebook_id)
         opts = StudioOptions(
             theme=theme,
+            template=template or "default",
             slide_count=max(4, min(20, int(slide_count))),
             length=length,
             audience=audience,
             tone=tone,
             instructions=instructions,
         )
-        doc = await run_generation(
-            StudioGenerateRequest(notebook_id=nid, kind=kind, options=opts)
-        )  # type: ignore[arg-type]
-        doc_id = storage.save_document(doc)
-        fmts = formats or [DEFAULT_FORMAT[kind]]
-        files = []
-        for f in dict.fromkeys(fmts):
-            item = storage.store_file(doc, f, nid, doc_id)
-            meta = item.model_dump() | {"url": f"/api/studio/files/{item.id}/download"}
-            files.append(meta)
-            await ctx.on_file(meta)
+        result = await produce(ctx.run, nid, kind, formats, opts)
+        return json.dumps(result)
+
+    async def read_source(source_id: str) -> str:
+        sid = source_id if source_id.startswith("source:") else f"source:{source_id}"
+        await ctx.run.progress(f"Reading {sid}")
+        src = await ctx.api("GET", f"/sources/{sid}")
+        text = (src.get("full_text") or "").strip()
+        await ctx.run.progress(
+            f'Read {len(text):,} characters from "{src.get("title")}"'
+        )
         return json.dumps(
             {
-                "title": doc.title,
-                "slides": len(doc.slides) + (3 if opts.slide_count >= 8 else 2)
-                if kind == "presentation"
-                else None,
-                "files": [{"filename": f["filename"], "id": f["id"]} for f in files],
+                "title": src.get("title"),
+                "status": src.get("status"),
+                "text": text[:6000],
             }
         )
+
+    async def process_sources(notebook_id: Optional[str] = None) -> str:
+        nid = await ctx.nb(notebook_id)
+        srcs = await ctx.api("GET", "/sources", params={"notebook_id": nid})
+        retried = []
+        for s_ in srcs:
+            if s_.get("status") in ("failed", "error") or not s_.get("embedded"):
+                await ctx.run.progress(f'Reprocessing "{s_.get("title")}"')
+                try:
+                    await ctx.api("POST", f"/sources/{s_['id']}/retry")
+                    retried.append(s_.get("title"))
+                except RuntimeError as e:
+                    await ctx.run.progress(f"Could not reprocess: {e}")
+        return json.dumps({"reprocessing": retried, "total_sources": len(srcs)})
 
     async def list_files(notebook_id: Optional[str] = None) -> str:
         from open_notebook.exports import storage
@@ -409,9 +460,19 @@ def build_tools(ctx: ToolContext) -> List[StructuredTool]:
         t(
             generate_file,
             GenerateFileArgs,
-            "Generate a professional PDF report, PowerPoint presentation, infographic or executive summary from a notebook and save the files. Call it once per document; call it several times for several documents.",
+            "Generate a PowerPoint presentation, PDF report (short/medium/long), infographic, Excel dashboard or executive summary from a notebook. Runs template selection, design and an audit loop, then saves the files. Call once per document.",
         ),
         t(list_files, NotebookArg, "List files already generated by Studio."),
+        t(
+            read_source,
+            SourceArg,
+            "Read the extracted text of one source or attached file.",
+        ),
+        t(
+            process_sources,
+            NotebookArg,
+            "Reprocess sources in a notebook that failed or were never processed.",
+        ),
         t(
             generate_podcast,
             PodcastArgs,
