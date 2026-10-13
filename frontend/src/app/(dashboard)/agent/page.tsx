@@ -304,7 +304,7 @@ export default function ThothPage() {
         <aside className={cn('w-64 shrink-0 flex-col border-r bg-background', topicMenuOpen ? 'fixed inset-y-0 left-0 z-50 flex md:static' : 'hidden md:flex')}>
           <div className="flex items-center gap-2.5 px-4 pb-2 pt-4">
             <button type="button" onClick={() => { setPanelTab('profile'); setPanelOpen(true); setTopicMenuOpen(false) }} className="flex min-w-0 flex-1 items-center gap-2.5 text-left" aria-label="Agent profile">
-              <ThothAvatar size={34} />
+              <ThothAvatar size={40} />
               <span className="flex flex-col leading-tight">
                 <span className="text-sm font-semibold">Thoth</span>
                 <span className="text-[11px] text-muted-foreground">MCIT AI agent</span>
@@ -346,7 +346,7 @@ export default function ThothPage() {
           <header className="flex items-center justify-between gap-3 px-5 py-2.5">
             <div className="flex min-w-0 items-center gap-2 text-sm">
               <button type="button" className="md:hidden" onClick={() => setTopicMenuOpen(true)} aria-label="Open topics"><Menu className="h-4 w-4" /></button>
-              <ThothAvatar size={22} />
+              <ThothAvatar size={28} />
               <span className="truncate font-medium">{active?.messages.length ? active.title : 'Thoth'}</span>
             </div>
             <div className="flex items-center gap-2">
@@ -370,7 +370,7 @@ export default function ThothPage() {
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-6 py-6">
               {!active?.messages.length ? (
                 <div className="flex flex-col items-center gap-3 pt-[14vh] text-center">
-                  <ThothAvatar size={72} />
+                  <ThothAvatar size={96} />
                   <h1 className="text-2xl font-semibold tracking-tight">Thoth</h1>
                   <p className="text-sm text-muted-foreground">
                     {notebookName ? `Working in ${notebookName}. What do you need?` : 'What should we work on today?'}
@@ -391,7 +391,7 @@ export default function ThothPage() {
                     </div>
                   ) : (
                     <div key={m.id} className="flex gap-3">
-                      <ThothAvatar size={28} className="mt-0.5" />
+                      <ThothAvatar size={40} className="shrink-0" />
                       <div className="flex min-w-0 flex-1 flex-col gap-2">
                         <StepTimeline events={m.events ?? []} running={!!m.pending} />
                         {m.pending && !(m.events ?? []).length && (
@@ -517,7 +517,7 @@ export default function ThothPage() {
             <div className="flex-1 overflow-y-auto p-3">
               {panelTab === 'profile' && (
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3 rounded-lg border p-3"><ThothAvatar size={48} /><div><div className="font-semibold">Thoth</div><div className="text-xs text-muted-foreground">MCIT AI agent</div></div></div>
+                  <div className="flex items-center gap-3 rounded-lg border p-3"><ThothAvatar size={72} /><div><div className="font-semibold">Thoth</div><div className="text-xs text-muted-foreground">MCIT AI agent</div></div></div>
                   <div className="text-xs font-medium text-muted-foreground">Choose an avatar</div>
                   <div className="grid grid-cols-3 gap-2">
                     {AGENT_AVATARS.map((name) => (
