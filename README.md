@@ -65,3 +65,7 @@ MCIT AI is derived from Open Notebook by Luis Novo and contributors under the MI
 The original copyright and licence notice remain in [LICENSE](LICENSE), and the upstream
 README is archived in [docs/upstream-README.md](docs/upstream-README.md). The application
 UI contains no upstream product branding.
+
+## Agent core pivot (2026-10-13)
+
+Primary agent application is now **`lobe-mcit/`** (LobeHub-based MCIT AI). See `lobe-mcit/MCIT_README.md` and `docs/7-DEVELOPMENT/decisions/ADR-016-lobehub-as-mcit-core.md`.
