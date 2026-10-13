@@ -50,10 +50,7 @@ services:
     restart: always
 
   open_notebook:
-    build:
-      context: .
-      args:
-        NEXT_PUBLIC_THOTH_AVATAR: ${NEXT_PUBLIC_THOTH_AVATAR:-false}
+    build: .
     image: mcit-lm:local
     ports:
       - "8502:8502"  # Web UI

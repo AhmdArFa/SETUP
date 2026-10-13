@@ -1,13 +1,15 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
 import { Markdown } from '@lobehub/ui'
 import {
   BookOpen,
   CircleAlert,
   FileText,
   Loader2,
+  Menu,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
@@ -24,7 +26,7 @@ import { toast } from 'sonner'
 import { AppShell } from '@/components/layout/AppShell'
 import { FileCard } from '@/components/files/FileCard'
 import { StepTimeline } from '@/components/thoth/StepTimeline'
-import { ThothAvatar } from '@/components/thoth/ThothAvatar'
+import { AGENT_AVATARS, setAgentAvatar, ThothAvatar, useAgentAvatar } from '@/components/thoth/ThothAvatar'
 import {
   agentApi,
   AgentFile,
@@ -87,6 +89,7 @@ function loadTopics(): Topic[] {
 }
 
 export default function ThothPage() {
+  const queryClient = useQueryClient()
   const [topics, setTopics] = useState<Topic[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -95,7 +98,9 @@ export default function ThothPage() {
   const [liveUsage, setLiveUsage] = useState<RunUsage | null>(null)
   const [pending, setPending] = useState<PendingAttachment[]>([])
   const [panelOpen, setPanelOpen] = useState(true)
-  const [panelTab, setPanelTab] = useState<'skills' | 'documents' | 'run'>('skills')
+  const [panelTab, setPanelTab] = useState<'skills' | 'documents' | 'run' | 'profile'>('skills')
+  const [topicMenuOpen, setTopicMenuOpen] = useState(false)
+  const selectedAvatar = useAgentAvatar()
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -103,6 +108,14 @@ export default function ThothPage() {
   const { data: models } = useModels()
   const { data: defaults } = useModelDefaults()
   const { data: skills = [] } = useQuery({ queryKey: ['agent-skills'], queryFn: agentApi.listSkills })
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)')
+    const update = () => setPanelOpen(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
 
   const languageModels = useMemo(() => (models ?? []).filter((m) => m.type === 'language'), [models])
 
@@ -147,6 +160,11 @@ export default function ThothPage() {
   const patchTopic = useCallback((id: string, fn: (t: Topic) => Topic) => {
     setTopics((all) => all.map((t) => (t.id === id ? { ...fn(t), updated: Date.now() } : t)))
   }, [])
+  useEffect(() => {
+    if (notebooks && active?.notebookId && !notebooks.some((n) => n.id === active.notebookId)) {
+      patchTopic(active.id, (topic) => ({ ...topic, notebookId: undefined }))
+    }
+  }, [notebooks, active?.id, active?.notebookId, patchTopic])
   const patchLast = useCallback(
     (id: string, fn: (m: Message) => Message) =>
       patchTopic(id, (t) => ({ ...t, messages: t.messages.map((m, i) => (i === t.messages.length - 1 ? fn(m) : m)) })),
@@ -179,21 +197,32 @@ export default function ThothPage() {
       const key = uid()
       setPending((p) => [...p, { key, name: file.name, size: file.size, state: 'uploading' }])
       try {
-        const att = await agentApi.attach(file, t.notebookId)
+        const target = notebooks && t.notebookId && !notebooks.some((n) => n.id === t.notebookId) ? undefined : t.notebookId
+        const att = await agentApi.attach(file, target)
+        // A new topic without a notebook uploads into Thoth workspace. Pin the
+        // conversation to it so notebook-scoped tools can read the attachment.
+        if (!target) {
+          patchTopic(t.id, (topic) => ({ ...topic, notebookId: att.notebook_id }))
+          queryClient.invalidateQueries({ queryKey: ['notebooks'] })
+        }
         setPending((p) => p.map((x) => (x.key === key ? { ...x, ...att, state: 'processing' } : x)))
         // Wait for real processing status from the source pipeline
+        let finished = false
         for (let i = 0; i < 120; i++) {
           const st = await sourcesApi.status(att.source_id)
           if (st.status === 'completed') {
             setPending((p) => p.map((x) => (x.key === key ? { ...x, state: 'ready' } : x)))
+            finished = true
             break
           }
           if (st.status === 'failed' || st.status === 'error') {
-            setPending((p) => p.map((x) => (x.key === key ? { ...x, state: 'failed', error: st.message } : x)))
+            setPending((p) => p.map((x) => (x.key === key ? { ...x, state: 'failed', error: 'Source processing failed. Check the source in its notebook.' } : x)))
+            finished = true
             break
           }
           await new Promise((r) => setTimeout(r, 2000))
         }
+        if (!finished) setPending((p) => p.map((x) => (x.key === key ? { ...x, state: 'failed', error: 'Source processing timed out. Check the worker and retry from the source page.' } : x)))
       } catch (e) {
         const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
         setPending((p) => p.map((x) => (x.key === key ? { ...x, state: 'failed', error: msg || 'Upload failed' } : x)))
@@ -269,17 +298,26 @@ export default function ThothPage() {
   const notebookName = notebooks?.find((n) => n.id === active?.notebookId)?.name
 
   return (
-    <AppShell>
+    <AppShell hideSidebar>
       <div className="flex min-h-0 flex-1">
         {/* ---------------- left: topics ---------------- */}
-        <aside className="hidden w-64 shrink-0 flex-col border-r md:flex">
+        <aside className={cn('w-64 shrink-0 flex-col border-r bg-background', topicMenuOpen ? 'fixed inset-y-0 left-0 z-50 flex md:static' : 'hidden md:flex')}>
           <div className="flex items-center gap-2.5 px-4 pb-2 pt-4">
-            <ThothAvatar size={30} />
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold">Thoth</span>
-              <span className="text-[11px] text-muted-foreground">MCIT agent</span>
-            </div>
+            <button type="button" onClick={() => { setPanelTab('profile'); setPanelOpen(true); setTopicMenuOpen(false) }} className="flex min-w-0 flex-1 items-center gap-2.5 text-left" aria-label="Agent profile">
+              <ThothAvatar size={34} />
+              <span className="flex flex-col leading-tight">
+                <span className="text-sm font-semibold">Thoth</span>
+                <span className="text-[11px] text-muted-foreground">MCIT AI agent</span>
+              </span>
+            </button>
+            <button type="button" onClick={() => setTopicMenuOpen(false)} className="md:hidden" aria-label="Close topics"><X className="h-4 w-4" /></button>
           </div>
+          <nav className="flex flex-wrap gap-x-3 gap-y-1 px-4 py-3 text-xs text-muted-foreground" aria-label="Workspace navigation">
+            <Link href="/notebooks" className="hover:text-foreground">Notebooks</Link>
+            <Link href="/files" className="hover:text-foreground">Files</Link>
+            <Link href="/usage" className="hover:text-foreground">Usage</Link>
+            <Link href="/settings/models" className="hover:text-foreground">Models</Link>
+          </nav>
           <div className="flex flex-col gap-2 p-3">
             <button type="button" onClick={newTopic} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-muted">
               <Plus className="h-4 w-4" /> Start new topic
@@ -296,7 +334,7 @@ export default function ThothPage() {
             )}
             {shownTopics.map((t) => (
               <div key={t.id} className={cn('group flex items-center gap-1 rounded-lg px-3 py-2 text-sm', t.id === activeId ? 'bg-muted font-medium' : 'text-foreground/80 hover:bg-muted/60')}>
-                <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => setActiveId(t.id)}>{t.title}</button>
+                <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={() => { setActiveId(t.id); setTopicMenuOpen(false) }}>{t.title}</button>
                 <button type="button" aria-label="Delete topic" onClick={() => deleteTopic(t.id)} className="rounded p-1 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             ))}
@@ -307,12 +345,15 @@ export default function ThothPage() {
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center justify-between gap-3 px-5 py-2.5">
             <div className="flex min-w-0 items-center gap-2 text-sm">
+              <button type="button" className="md:hidden" onClick={() => setTopicMenuOpen(true)} aria-label="Open topics"><Menu className="h-4 w-4" /></button>
+              <ThothAvatar size={22} />
               <span className="truncate font-medium">{active?.messages.length ? active.title : 'Thoth'}</span>
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={active?.notebookId ?? ANY}
                 onChange={(e) => setOpt({ notebookId: e.target.value === ANY ? undefined : e.target.value })}
+                disabled={!!runId || pending.some((p) => p.state !== 'failed')}
                 className="h-8 max-w-[220px] rounded-lg border bg-transparent px-2 text-sm"
                 aria-label="Notebook"
               >
@@ -399,10 +440,11 @@ export default function ThothPage() {
                     ) : null
                   })}
                   {pending.map((p) => (
-                    <span key={p.key} className={cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs', p.state === 'failed' && 'border-destructive/40 text-destructive')} title={p.error}>
+                    <span key={p.key} className={cn('inline-flex flex-wrap items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs', p.state === 'failed' && 'border-destructive/40 text-destructive')}>
                       {p.state === 'uploading' || p.state === 'processing' ? <Loader2 className="h-3 w-3 animate-spin" /> : p.state === 'failed' ? <CircleAlert className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
-                      {p.name} <span className="text-muted-foreground">{p.state === 'ready' ? formatBytes(p.size) : p.state}</span>
+                      {p.name} <span className="text-muted-foreground">{p.state === 'ready' ? `Ready · ${formatBytes(p.size)}` : p.state}</span>
                       <button type="button" onClick={() => setPending((all) => all.filter((x) => x.key !== p.key))} aria-label={`Remove ${p.name}`}><X className="h-3 w-3" /></button>
+                      {p.error && <span role="alert" className="basis-full text-[11px] leading-relaxed">{p.error}</span>}
                     </span>
                   ))}
                 </div>
@@ -420,18 +462,18 @@ export default function ThothPage() {
                 placeholder={notebookName ? `Message Thoth about ${notebookName}` : 'Message Thoth'}
                 className="block max-h-60 w-full resize-none bg-transparent px-4 pt-3 text-sm outline-none"
               />
-              <div className="flex items-center gap-2 px-2.5 pb-2.5">
+              <div className="flex flex-wrap items-center gap-2 px-2.5 pb-2.5">
                 <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} />
                 <button type="button" onClick={() => fileInput.current?.click()} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label="Attach files">
                   <Plus className="h-4 w-4" />
                 </button>
-                <div className="ml-auto flex items-center gap-1.5">
+                <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                   {caps?.context_window ? (
                     <span className="hidden text-[11px] text-muted-foreground sm:inline" title={`Reported by ${caps.source}`}>
                       {formatTokens(caps.context_window)} active context
                     </span>
                   ) : null}
-                  <select value={modelId} onChange={(e) => setOpt({ modelId: e.target.value })} className="h-8 max-w-[190px] rounded-lg bg-transparent px-2 text-xs hover:bg-muted" aria-label="Model">
+                  <select value={modelId} onChange={(e) => setOpt({ modelId: e.target.value })} className="h-8 max-w-[125px] rounded-lg bg-transparent px-2 text-xs hover:bg-muted sm:max-w-[190px]" aria-label="Model">
                     {languageModels.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.provider}</option>)}
                   </select>
                   <select
@@ -439,7 +481,7 @@ export default function ThothPage() {
                     onChange={(e) => setOpt({ thinking: e.target.value })}
                     disabled={!caps?.reasoning}
                     title={caps?.reasoning ? 'Reasoning effort' : `${caps?.name ?? 'This model'} does not support adjustable reasoning`}
-                    className="h-8 rounded-lg bg-transparent px-2 text-xs hover:bg-muted disabled:opacity-50"
+                    className="h-8 max-w-[110px] rounded-lg bg-transparent px-2 text-xs hover:bg-muted disabled:opacity-50 sm:max-w-none"
                     aria-label="Thinking level"
                   >
                     {caps?.reasoning ? (
@@ -465,13 +507,29 @@ export default function ThothPage() {
 
         {/* ---------------- right: context panel ---------------- */}
         {panelOpen && (
-          <aside className="hidden w-80 shrink-0 flex-col border-l lg:flex">
+          <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(20rem,90vw)] flex-col border-l bg-background lg:static lg:z-auto lg:w-80 lg:shrink-0">
             <div className="flex gap-1 border-b px-3 py-2">
-              {(['skills', 'documents', 'run'] as const).map((tab) => (
+              {(['skills', 'documents', 'run', 'profile'] as const).map((tab) => (
                 <button key={tab} type="button" onClick={() => setPanelTab(tab)} className={cn('rounded-md px-3 py-1.5 text-xs capitalize', panelTab === tab ? 'bg-muted font-medium' : 'text-muted-foreground hover:text-foreground')}>{tab}</button>
               ))}
+              <button type="button" onClick={() => setPanelOpen(false)} className="ml-auto lg:hidden" aria-label="Close context panel"><X className="h-4 w-4" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
+              {panelTab === 'profile' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3 rounded-lg border p-3"><ThothAvatar size={48} /><div><div className="font-semibold">Thoth</div><div className="text-xs text-muted-foreground">MCIT AI agent</div></div></div>
+                  <div className="text-xs font-medium text-muted-foreground">Choose an avatar</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {AGENT_AVATARS.map((name) => (
+                      <button key={name} type="button" onClick={() => setAgentAvatar(name)} aria-pressed={selectedAvatar === name} aria-label={`Use ${name === 'thoth-avatar' ? 'Thoth' : name} avatar`} className={cn('flex flex-col items-center gap-1 rounded-lg border p-2 hover:bg-muted', selectedAvatar === name && 'border-foreground/60 bg-muted')}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/avatars/${name}.webp`} alt="" width={48} height={48} className="rounded-full object-cover" />
+                        <span className="max-w-full truncate text-[10px] capitalize">{name.replace('-', ' ')}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {panelTab === 'skills' && (
                 <div className="flex flex-col gap-2">
                   {skills.length === 0 && <div className="flex items-center gap-2 text-xs text-muted-foreground"><Sparkles className="h-3.5 w-3.5" /> No skills</div>}

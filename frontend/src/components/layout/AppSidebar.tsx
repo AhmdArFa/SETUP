@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
+import { ThothAvatar } from '@/components/thoth/ThothAvatar'
 import type { TFunction } from 'i18next'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import {
@@ -298,7 +299,7 @@ export function AppSidebar() {
                         isCollapsed ? 'justify-center px-2' : 'justify-start'
                       )}
                     >
-                      <item.icon className={cn('h-4 w-4 opacity-85', item.iconClass)} />
+                       {item.href === '/agent' ? <ThothAvatar size={20} /> : <item.icon className={cn('h-4 w-4 opacity-85', item.iconClass)} />}
                       {!isCollapsed && <span>{item.name}</span>}
                     </Button>
                   )

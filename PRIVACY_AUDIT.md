@@ -15,6 +15,8 @@ leak under all paths would be false.
 | Provider model discovery | Provider `/models` endpoints, including `api.groq.com` and other registry URLs | Sends provider key for authentication; no notebook text intended. Groq discovery was exercised. |
 | Source ingestion | User-supplied page/YouTube URLs and optional extraction services | Sends requests to that host. Links with sensitive query strings and remote extraction services need separate review. |
 | UI | `next/font/google` build-time font fetches; provider links; YouTube embeds in source details | External traffic is possible. Fonts are packaged into the built image. Next.js build/runtime telemetry is disabled in the Dockerfile. Do not open external embeds for sensitive data without a policy. |
+| Avatar gallery | Nine images from `hazemelerefey/mcit-ai-library` at pinned commit `0afefb53906ae0c6ee5b8167d06c663848f7e5ae` | Build/setup download only; browser reads bundled `/avatars/*.webp` locally. The asset repository publishes no license file; verify redistribution authorization before release. |
+| LobeHub application | Not used at runtime or imported as source | Its Community License requires commercial permission for some derivatives. LobeHub's optional analytics, telemetry and marketplace would need a new egress review if the whole platform were adopted. The published `@lobehub/ui` dependency is already in the frontend. |
 | Update check | The old API version check reached `raw.githubusercontent.com` | Automatic check disabled in `api/routers/config.py`; the utility remains in the code for callers that may invoke it. |
 
 ## Storage map
@@ -25,6 +27,7 @@ leak under all paths would be false.
 | Chat graph checkpoints | Local SQLite file under `notebook_data/sqlite-db/` | **Not in SurrealDB.** Back up, protect and encrypt the data volume. |
 | Original uploads, podcast audio and generated Studio files | Local `notebook_data/` volume | **Not in SurrealDB.** Permissions, retention, backup and encryption at rest must be addressed. |
 | Agent topics and messages | Browser `localStorage` (`mcit-ai-thoth-topics`) | **Not in MCIT's database.** Sensitive messages persist on the client device, unencrypted. |
+| Agent avatar preference | Browser `localStorage` (`mcit-ai-agent-avatar`) | Contains only an allowlisted local image name. No remote avatar URL or file contents. |
 | Skills | JSON file under `notebook_data/agent/skills.json` | **Not in MCIT's database.** User-defined instructions may contain private content. |
 | Usage records | SurrealDB `usage_event` | Counts/model names and timestamps only; no prompt text intentionally written here. No pricing data. |
 | Ollama models | `ollama_data/` local volume | Local cache. |

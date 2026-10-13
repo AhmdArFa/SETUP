@@ -92,11 +92,7 @@ export const agentApi = {
     const form = new FormData()
     form.append('file', file)
     if (notebookId) form.append('notebook_id', notebookId)
-    return (
-      await apiClient.post<Attachment>('/agent/attachments', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-    ).data
+    return (await apiClient.post<Attachment>('/agent/attachments', form)).data
   },
   listSkills: async () => (await apiClient.get<Skill[]>('/agent/skills')).data,
   createSkill: async (s: { name: string; instructions: string; description?: string; source_url?: string }) =>

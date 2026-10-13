@@ -7,12 +7,13 @@ import { FilePanelHost } from '@/components/files/FilePanel'
 
 interface AppShellProps {
   children: React.ReactNode
+  hideSidebar?: boolean
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, hideSidebar = false }: AppShellProps) {
   return (
     <div className="flex h-screen overflow-hidden">
-      <AppSidebar />
+      {!hideSidebar && <AppSidebar />}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <SetupBanner />
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</div>

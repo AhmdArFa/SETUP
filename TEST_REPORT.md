@@ -10,7 +10,7 @@ exists.
 
 - Docker Compose (Alloy host-network variant) starts SurrealDB, Ollama, Kokoro, API/worker and
   Next.js; `/health` returns `healthy` and `/agent` responds with HTTP 200.
-- Backend `uv run pytest tests/ -q`: **1,005 passed** (including five new editor/error/context tests),
+- Backend `uv run pytest tests/ -q`: **1,007 passed** (including seven editor/error/context/attachment tests),
   2 dependency warnings.
 - `ruff check api open_notebook tests`: passed after the fixes. Frontend lint: zero errors, seven
   existing warnings. Frontend Vitest: **181/181 passed** when run separately from the backend;
@@ -32,7 +32,7 @@ exists.
 | 2 | Models | A saved Groq credential initially had zero registered models. Startup sync registered eight usable models; the Groq SDK double-prefix bug was fixed. Switching Groq's `openai/gpt-oss-20b` into an agent run worked. Other providers not exercised. |
 | 3 | Thinking | Low and High on Groq succeeded. Provider usage: Low 65 reasoning tokens across four calls; High 679 across three calls (different paths, so counts are not a controlled benchmark). qwen2.5:7b correctly disables adjustable thinking. |
 | 4 | Steps | Live events recorded actual model/tool transitions, skills and progress in an API run; visual expand/collapse not exercised with a live run. |
-| 5 | Uploads | Previously uploaded PDF processed and was used for chat. Agent `+` uploads for image, spreadsheet and archive were not exercised. Some formats may not have extractors. |
+| 5 | Uploads | Agent `+` PDF uploaded in Playwright and reached Ready; the conversation was pinned to Thoth workspace and the source completed. PNG was rejected with 415 because the configured local extraction pipeline cannot process it. A saved topic referring to a deleted test notebook produced a 404 on subsequent upload even though the selector showed All notebooks; the UI now clears missing notebook ids before submission. Spreadsheet and archive ingestion remain unverified. |
 | 6 | Skills | Default writing instructions injected into prompts and announced during a live agent run. User-added skills and executable plugins were not exercised; these skills are instructions, not executable plugins. |
 | 7 | Document workflow | Custom Data Story deck: reference, design, real PPTX audit, zero issues, downloadable file. A deliberately overflowing deck was caught and converged to zero after two passes. Other custom templates/types not exhaustively tested. |
 | 8 | PDF lengths | Short/Medium/Long labels and long-form section expansion implemented; comparative page counts were not measured. |
@@ -43,7 +43,7 @@ exists.
 | 13 | Privacy | New run errors redacted; repository scan performed. No complete packet capture, cloud retention proof or failure-path coverage. See `PRIVACY_AUDIT.md`. |
 | 14 | Copy | MCIT AI/Thoth on primary screens; upstream README and internal docs still contain old identity. Full copy sweep incomplete. |
 | 15 | Two surfaces | Notebook Assistant remains source-grounded; Thoth agent lists notebooks, searches and generates files. An empty notebook now offers source-add/process actions. Full interaction test pending. |
-| 16 | Design | Three-pane dark layout rendered. Pixel comparison impossible: `chat-ui-reference.png` was not attached. Thoth avatar falls back to a text monogram until the approved image is supplied. |
+| 16 | Design | The user-provided MCIT asset repository includes `chat-ui-reference.png` and nine WebP avatars. The images were bundled locally at pinned commit `0afefb53906ae0c6ee5b8167d06c663848f7e5ae`; Tutankhamun is the default. The global sidebar was removed from the Agent screen for a three-pane layout. Avatar switching was exercised in Playwright. Mobile layout was inspected; the compact composer received an additional wrapping fix. Exact pixel parity remains out of scope. |
 | 17 | Privacy audit | Partial audit with open findings, not a 100% privacy certificate. |
 | 18 | Embedded editors | Created PPTX, XLSX and PDF via editor API. A PPTX was opened, edited and saved from Playwright; version advanced from 1 to 2 with same id. PDF page reorder returned HTTP 200. Full PDF annotation, arbitrary PPTX shapes, and native Excel PivotTables are not implemented. |
 | 19 | Editor sync | Edited PPTX title persisted in the same file id, appeared as version 2 in Files and reopened in the panel. Chat attachment synchronization after a reload was not exercised. |
@@ -58,9 +58,11 @@ exists.
   runtime window. It now reads the active value from `/api/ps` and keeps the maximum separate;
   two mocked capability tests cover loaded and unloaded models.
 - Version checking against upstream GitHub was disabled and saved Groq credentials are synchronized into the model table.
+- Removed the Agent upload's duplicate loopback HTTP request. An unsupported type now returns a clear 415, and the composer exits failed or timed-out processing states instead of blocking sends indefinitely. A frontend test was corrected to scan `src/` rather than all of `frontend/`, making its runtime deterministic.
+- Unsupported upload reasons are shown inline instead of only in a tooltip. The compact mobile composer wraps its model controls rather than overflowing a narrow screen.
 
 ## Required before production sign-off
 
-Provide the approved avatar/reference design, test all 19 flows on a secured deployment, remediate
+Confirm the avatar repository's redistribution rights, test all 19 flows on a secured deployment, remediate
 dependency advisories, add a real image provider, decide on editor scope for arbitrary imported files, address privacy findings and
 run the full privacy/network audit. Do not represent this report as a final acceptance certificate.

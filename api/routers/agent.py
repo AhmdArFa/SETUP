@@ -1,13 +1,17 @@
 """Assistant (agent) and skills API."""
 
-import json
+import asyncio
 from typing import List, Literal, Optional
 
-import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from api.models import SourceCreate
+from api.routers.sources import create_source
 from open_notebook.agent import runner, skills
+from open_notebook.database.repository import repo_query
+from open_notebook.domain.notebook import Notebook
+from open_notebook.exceptions import NotFoundError, UnsupportedTypeException
 
 router = APIRouter()
 
@@ -68,11 +72,34 @@ async def cancel_run(run_id: str):
 
 
 WORKSPACE_NOTEBOOK = "Thoth workspace"
+_workspace_lock = asyncio.Lock()
+
+
+async def _attachment_notebook(notebook_id: Optional[str]) -> str:
+    if notebook_id:
+        try:
+            await Notebook.get(notebook_id)
+        except NotFoundError:
+            raise HTTPException(status_code=404, detail="Notebook not found") from None
+        return notebook_id
+
+    async with _workspace_lock:
+        existing = await repo_query(
+            "SELECT id FROM notebook WHERE name = $name LIMIT 1",
+            {"name": WORKSPACE_NOTEBOOK},
+        )
+        if existing:
+            return str(existing[0]["id"])
+        notebook = Notebook(
+            name=WORKSPACE_NOTEBOOK,
+            description="Files attached in conversations with Thoth",
+        )
+        await notebook.save()
+        return str(notebook.id)
 
 
 @router.post("/agent/attachments")
 async def upload_attachment(
-    request: Request,
     file: UploadFile = File(...),
     notebook_id: Optional[str] = Form(None),
 ):
@@ -82,58 +109,30 @@ async def upload_attachment(
     is searchable and readable by the agent. Without a current notebook the file
     goes to the "Thoth workspace" notebook.
     """
-    from open_notebook.agent.tools import INTERNAL_API
-
-    headers = {}
-    if request.headers.get("Authorization"):
-        headers["Authorization"] = request.headers["Authorization"]
-    async with httpx.AsyncClient(
-        base_url=INTERNAL_API, timeout=300, headers=headers
-    ) as c:
-        nid = notebook_id
-        if not nid:
-            nbs = (await c.get("/api/notebooks")).json()
-            ws = next((n for n in nbs if n["name"] == WORKSPACE_NOTEBOOK), None)
-            if not ws:
-                ws = (
-                    await c.post(
-                        "/api/notebooks",
-                        json={
-                            "name": WORKSPACE_NOTEBOOK,
-                            "description": "Files attached in conversations with Thoth",
-                        },
-                    )
-                ).json()
-            nid = ws["id"]
-        content = await file.read()
-        r = await c.post(
-            "/api/sources",
-            data={
-                "type": "upload",
-                "notebooks": json.dumps([nid]),
-                "embed": "true",
-                "async_processing": "true",
-            },
-            files={
-                "file": (
-                    file.filename,
-                    content,
-                    file.content_type or "application/octet-stream",
-                )
-            },
-        )
-        if r.status_code >= 400:
-            raise HTTPException(
-                status_code=r.status_code,
-                detail="The attachment could not be processed",
+    nid = await _attachment_notebook(notebook_id)
+    try:
+        src = await create_source(
+            (
+                SourceCreate(
+                    type="upload",
+                    notebooks=[nid],
+                    embed=True,
+                    async_processing=True,
+                ),
+                file,
             )
-        src = r.json()
+        )
+    except UnsupportedTypeException:
+        raise HTTPException(
+            status_code=415,
+            detail="This file type cannot be extracted by the current local processors. Configure a local extractor or choose a supported document.",
+        ) from None
     return {
-        "source_id": src["id"],
+        "source_id": src.id,
         "filename": file.filename,
         "notebook_id": nid,
-        "status": src.get("status"),
-        "size": len(content),
+        "status": src.status,
+        "size": file.size,
     }
 
 

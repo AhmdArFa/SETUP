@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Bundled the supplied MCIT avatar gallery locally, with Tutankhamun as Thoth's default and an in-app profile selector; avatar changes do not request GitHub at runtime.
 - **MCIT AI refactor (in progress):** Thoth agent runs with real step events and provider-reported token metering, model capability lookup, Studio template workflows, XLSX dashboards, editable file panels and a Usage view. Added editor and error-redaction regression tests.
 - **Assistant** page: tool-calling agent that creates notebooks, adds sources, searches, saves notes, generates Studio files in batches and starts podcasts (`/api/agent/runs`)
 - **Skills** page and API (`/api/agent/skills`): no-ai-slop and humanizer enabled by default; user skills are stored under the data folder
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `API_URL=same-origin` makes the browser use relative `/api` paths, so the UI works behind any proxy without exposing port 5055
 
 ### Changed
+- Thoth now uses its own three-pane workspace instead of nesting a topics rail inside the global sidebar.
 - The visible application name is MCIT AI and the agent is Thoth. The About page and footer credit read "Developed by Eng Ahmed Arfa for MCIT". The previously automatic GitHub version check no longer runs.
 - UI moved to a neutral modern design with @lobehub/ui chat components; removed decorative underlines and accent stripes; Inter typeface
 - **Rebranded to MCIT LM** (Ministry of Communications and Information Technology): navy/gold theme, official-logo slot (`frontend/public/mcit-logo.png`, text wordmark fallback), English-only LTR UI; `docker-compose.yml` now builds locally and ships an Ollama service
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Development:** `architecture.md`, `testing.md`, `api-reference.md` and `code-standards.md` are rewritten from the code. A new playbook covers adding an AI provider. Dev setup lives on one page. The AGENTS files agree with the docs. Contributor conventions (Conventional Commits, CHANGELOG sections, pre-PR checks that match CI) are documented
 
 ### Fixed
+- Agent attachments use the existing source-ingestion path directly instead of uploading the file twice through a loopback HTTP call. Unsupported local extraction returns a clear 415; the composer now resolves its upload notebook, clears deleted notebook references, shows readiness and exits failed or timed-out processing states.
 - Ollama model metadata now distinguishes the active `/api/ps` context window from the larger maximum supported by the model; the composer no longer presents the maximum as usable capacity.
 - **Docs no longer recommend settings that do nothing.** `API_CLIENT_TIMEOUT` was never read by Open Notebook; the timeout guidance now covers what actually applies: `ESPERANTO_LLM_TIMEOUT` per model call (keep it below 600) and the web UI's 10-minute request limit (`NEXT_PUBLIC_API_TIMEOUT_MS`, build time only). Remaining `SURREAL_COMMANDS_MAX_TASKS` advice now uses `OPEN_NOTEBOOK_WORKER_MAX_TASKS`. Docker instructions no longer say to edit `.env` and `docker compose restart`: the shipped compose file doesn't load `.env` into the container and `restart` doesn't reload environment changes, so they now point to the `open_notebook` service's `environment:` block and `docker compose up -d`
 - **Timeouts no longer read as connection failures.** A model that doesn't answer within `ESPERANTO_LLM_TIMEOUT` used to report "Could not connect to the AI provider"; it now says the provider took too long and how to raise the limit. Connection failures (including connect timeouts) keep the old message

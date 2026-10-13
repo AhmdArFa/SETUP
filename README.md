@@ -36,10 +36,21 @@ docker compose -f docker-compose.alloy.yaml up -d --build
 - Local TTS via Kokoro for podcast generation. Ollama is the default LLM; optional cloud
   providers send task content to their endpoints when selected.
 
-The approved Thoth avatar is **not included**. Supply the authorized image at
-`frontend/public/thoth-avatar.png` and set `NEXT_PUBLIC_THOTH_AVATAR=true` when building
-the frontend (`NEXT_PUBLIC_THOTH_AVATAR=true docker compose up -d --build`). Without it,
-the UI displays a text monogram, not a fabricated emblem.
+The avatar gallery is bundled from the MCIT asset repository at a pinned revision.
+`tutankhamun.webp` is the default. Select another locally stored avatar in Thoth's profile;
+no runtime request to GitHub is made.
+Confirm the asset repository's redistribution rights before a public release.
+
+Thoth uploads supported files through the same local ingestion path as notebooks. A PDF can be
+uploaded directly from the Agent composer. Image files such as PNG currently need a configured
+local OCR/vision extractor; they return an explicit unsupported-format error instead of being
+silently queued. The selected notebook is pinned while an attachment is pending.
+
+The LobeHub application source is **not** imported: its Community License can require a
+commercial derivative license, and its PostgreSQL/S3/Redis agent stack is not compatible with
+MCIT AI's current notebooks and Studio storage without a migration. MCIT AI uses the published
+`@lobehub/ui` component package for interface elements. See
+[ADR-015](docs/7-DEVELOPMENT/decisions/ADR-015-lobehub-integration-boundary.md).
 
 ## Deployment Status
 
