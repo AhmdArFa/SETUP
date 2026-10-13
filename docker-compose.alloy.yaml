@@ -1,15 +1,8 @@
-# Alloy sandbox variant of docker-compose.yml: same services, host networking.
-# UI: 8502 · API: 5055 · SurrealDB: 8000 · Ollama: 11434 · Kokoro TTS: 8880
-services:
-  surrealdb:
-    image: surrealdb/surrealdb:v2
-    network_mode: host
-    user: root
-    command: ["start", "--log", "info", "--bind", "127.0.0.1:8000", "--user", "root", "--pass", "root", "rocksdb:/mydata/mydatabase.db"]
-    volumes:
-      - ./surreal_data:/mydata
-    restart: always
+# Alloy preview: LobeHub-based MCIT AI (agent UI), not Open Notebook.
+# Alloy proxies :8080 → frontendPort 8502. A tiny host proxy on 8502 forwards to
+# the Lobe app on 3210 so the cloud preview works without localhost access.
 
+services:
   ollama:
     image: ollama/ollama:latest
     network_mode: host
@@ -19,48 +12,47 @@ services:
       - ./ollama_data:/root/.ollama
     restart: always
 
-  ollama-pull:
-    image: ollama/ollama:latest
+  # Keep local LLM available; Lobe stack itself runs via
+  # lobe-mcit/docker-compose/mcit (published ports). Alloy preview entry is the proxy.
+  alloy-preview-proxy:
+    image: node:22-bookworm
     network_mode: host
-    environment:
-      - OLLAMA_HOST=http://127.0.0.1:11434
-    entrypoint: ["sh", "-c", "sleep 3 && ollama pull ${OLLAMA_CHAT_MODEL:-qwen2.5:7b} && ollama pull ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}"]
-    depends_on:
-      - ollama
-    restart: "no"
-
-  # Self-hosted text-to-speech (OpenAI-compatible) so podcasts stay fully local
-  kokoro:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
-    network_mode: host
-    restart: always
-
-  open_notebook:
-    build:
-      context: .
-      network: host
-    image: mcit-lm:local
-    network_mode: host
-    env_file:
-      - .env
-    environment:
-      - IS_ALLOY=${IS_ALLOY:-false}
-      - SURREAL_URL=ws://127.0.0.1:8000/rpc
-      - SURREAL_USER=root
-      - SURREAL_PASSWORD=root
-      - SURREAL_NAMESPACE=open_notebook
-      - SURREAL_DATABASE=open_notebook
-      - OLLAMA_API_BASE=http://127.0.0.1:11434
-      - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-qwen2.5:7b}
-      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
-      - OPEN_NOTEBOOK_WORKER_MAX_TASKS=1
-      - OPENAI_COMPATIBLE_BASE_URL_TTS=http://127.0.0.1:8880/v1
-      - LOCAL_TTS_MODEL=kokoro
-      - API_URL=same-origin
+    working_dir: /workspace
     volumes:
-      - ./notebook_data:/app/data
-    depends_on:
-      - surrealdb
-      - ollama
-      - kokoro
+      - .:/workspace
+    environment:
+      - PORT=8502
+      - TPORT=3210
+      - TARGET=127.0.0.1
+    command:
+      - bash
+      - -lc
+      - |
+        cat > /tmp/proxy.js <<'JS'
+        const http = require('http');
+        const TARGET = process.env.TARGET || '127.0.0.1';
+        const TPORT = Number(process.env.TPORT || 3210);
+        const PORT = Number(process.env.PORT || 8502);
+        const server = http.createServer((req, res) => {
+          const headers = { ...req.headers, host: TARGET + ':' + TPORT };
+          const p = http.request({ hostname: TARGET, port: TPORT, path: req.url, method: req.method, headers }, (pr) => {
+            res.writeHead(pr.statusCode || 502, pr.headers);
+            pr.pipe(res);
+          });
+          p.on('error', (e) => { res.writeHead(502); res.end(String(e)); });
+          req.pipe(p);
+        });
+        server.on('upgrade', (req, socket) => {
+          const p = http.request({ hostname: TARGET, port: TPORT, path: req.url, method: req.method, headers: { ...req.headers, host: TARGET + ':' + TPORT } });
+          p.on('upgrade', (pr, ps, ph) => {
+            socket.write('HTTP/1.1 101 Switching Protocols\r\n' + Object.entries(pr.headers).map(([k,v]) => k + ': ' + v).join('\r\n') + '\r\n\r\n');
+            if (ph?.length) socket.write(ph);
+            ps.pipe(socket); socket.pipe(ps);
+          });
+          p.on('error', () => socket.destroy());
+          p.end();
+        });
+        server.listen(PORT, '0.0.0.0', () => console.log('MCIT Alloy proxy :' + PORT + ' -> ' + TARGET + ':' + TPORT));
+        JS
+        node /tmp/proxy.js
     restart: always

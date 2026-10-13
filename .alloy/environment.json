@@ -1,1 +1,5 @@
-{"dockerComposePath":"docker-compose.alloy.yaml","frontendPort":8502,"homeUrl":"/notebooks"}
+{
+  "dockerComposePath": "docker-compose.alloy.yaml",
+  "frontendPort": 8502,
+  "homeUrl": "/"
+}
